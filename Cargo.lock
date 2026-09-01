@@ -18,6 +18,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "320119579fcad9c21884f5c4861d16174d0e06250625266f50fe6898340abefa"
 
 [[package]]
+name = "allocation-manager"
+version = "0.1.0"
+dependencies = [
+ "fusd-token",
+ "mint-redeem-controller",
+ "soroban-sdk",
+ "vault-accounting",
+]
+
+[[package]]
 name = "android_system_properties"
 version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -85,6 +95,13 @@ name = "base64ct"
 version = "1.8.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2af50177e190e07a26ab74f8b1efbfe2ef87da2116221318cb1c2e82baf7de06"
+
+[[package]]
+name = "blend-adapter"
+version = "0.1.0"
+dependencies = [
+ "soroban-sdk",
+]
 
 [[package]]
 name = "block-buffer"
@@ -723,7 +740,9 @@ dependencies = [
 name = "mint-redeem-controller"
 version = "0.1.0"
 dependencies = [
+ "fusd-token",
  "soroban-sdk",
+ "vault-accounting",
 ]
 
 [[package]]

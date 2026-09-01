@@ -103,6 +103,22 @@ pub struct ChainState {
 }
 
 #[contracttype]
+#[derive(Clone, Debug, PartialEq)]
+pub struct StrategyState {
+    pub strategy_id: BytesN<32>,
+    /// Adapter contract address (e.g. BlendAdapter) responsible for this strategy.
+    pub adapter: Address,
+    /// Conservative, hub-tracked value of the capital deployed to this strategy (6 decimals).
+    pub deployed_value_6: i128,
+    /// Governance-set ceiling on capital this strategy may ever hold (6 decimals).
+    pub debt_ceiling_6: i128,
+    /// Whether the AllocationManager may still move idle funds into this strategy.
+    pub active: bool,
+    /// Ledger of the last accepted value report — used by callers/indexers for staleness checks.
+    pub last_report_ledger: u32,
+}
+
+#[contracttype]
 #[derive(Clone, Debug)]
 pub struct MintAuthRecord {
     pub mint_auth_id: BytesN<32>,
@@ -139,6 +155,8 @@ pub enum DataKey {
     ConsumedGmp(BytesN<32>),
     /// Per-mint-auth lifecycle record — Persistent storage.
     MintAuth(BytesN<32>),
+    /// Per-strategy accounting record — Persistent storage.
+    StrategyState(BytesN<32>),
     /// Who can call state-mutating methods.
     Controller,   // MintRedeemController
     Allocator,    // AllocationManager
@@ -227,6 +245,7 @@ impl VaultAccounting {
         gs.mint_allowance_6 = gs.mint_allowance_6.checked_add(amount_6).expect("overflow");
         e.storage().instance().set(&DataKey::GlobalState, &gs);
 
+        Self::assert_invariant_internal(&e, &gs);
         e.events().publish((symbol_short!("LocDep"),), amount_6);
     }
 
@@ -304,6 +323,7 @@ impl VaultAccounting {
         gs.pending_fast_credit_6 -= amount_6;
         e.storage().instance().set(&DataKey::GlobalState, &gs);
 
+        Self::assert_invariant_internal(&e, &gs);
         e.events().publish((symbol_short!("FstFinal"),), amount_6);
     }
 
@@ -385,8 +405,9 @@ impl VaultAccounting {
         assert!(gs.settled_spoke_escrow_usdc_6 >= amount_6, "global escrow underflow");
         gs.settled_spoke_escrow_usdc_6 -= amount_6;
         // Revoke the mint allowance that was granted when this collateral was locked.
-        // If the allowance was already consumed by a mint, saturating_sub clamps to 0.
-        gs.mint_allowance_6 = gs.mint_allowance_6.saturating_sub(amount_6);
+        // If the allowance was already consumed by a mint, clamp at 0 — `saturating_sub`
+        // on a *signed* i128 only guards overflow at i128::MIN, it does not clamp at 0.
+        gs.mint_allowance_6 = (gs.mint_allowance_6 - amount_6).max(0);
 
         e.storage().persistent().set(&DataKey::ConsumedGmp(release_id.clone()), &true);
         e.storage().persistent().extend_ttl(&DataKey::ConsumedGmp(release_id), 13_140_000, 13_140_000);
@@ -454,6 +475,7 @@ impl VaultAccounting {
         assert!(gs.pending_outbound_usdc_6 >= amount_6, "outbound underflow");
         gs.pending_outbound_usdc_6 -= amount_6;
         e.storage().instance().set(&DataKey::GlobalState, &gs);
+        Self::assert_invariant_internal(&e, &gs);
         e.events().publish((symbol_short!("OutSent"),), amount_6);
     }
 
@@ -466,6 +488,7 @@ impl VaultAccounting {
         gs.pending_outbound_usdc_6 -= amount_6;
         gs.settled_idle_usdc_6 = gs.settled_idle_usdc_6.checked_add(amount_6).expect("overflow");
         e.storage().instance().set(&DataKey::GlobalState, &gs);
+        Self::assert_invariant_internal(&e, &gs);
         e.events().publish((symbol_short!("OutCncl"),), amount_6);
     }
 
@@ -623,6 +646,136 @@ impl VaultAccounting {
         e.storage().persistent().extend_ttl(&DataKey::ConsumedGmp(burn_id), 13_140_000, 13_140_000);
 
         e.events().publish((symbol_short!("BurnAcc"), chain_id), amount_6);
+    }
+
+    // ── Strategy allocation (called by AllocationManager) ────────────────────
+
+    /// Admin-only: set the AllocationManager contract address. Must be set before
+    /// any strategy-accounting method can be called.
+    pub fn set_allocator(e: Env, caller: Address, allocator: Address) {
+        Self::auth_admin(&e, &caller);
+        e.storage().instance().set(&DataKey::Allocator, &allocator);
+    }
+
+    /// Admin-only: register a new strategy adapter with an initial zero balance.
+    pub fn register_strategy(e: Env, caller: Address, strategy_id: BytesN<32>, adapter: Address, debt_ceiling_6: i128) {
+        Self::auth_admin(&e, &caller);
+        assert!(debt_ceiling_6 >= 0, "debt ceiling must be non-negative");
+        assert!(
+            !e.storage().persistent().has(&DataKey::StrategyState(strategy_id.clone())),
+            "strategy already registered"
+        );
+        let state = StrategyState {
+            strategy_id: strategy_id.clone(),
+            adapter,
+            deployed_value_6: 0,
+            debt_ceiling_6,
+            active: true,
+            last_report_ledger: e.ledger().sequence(),
+        };
+        e.storage().persistent().set(&DataKey::StrategyState(strategy_id.clone()), &state);
+        e.events().publish((symbol_short!("StratReg"),), strategy_id);
+    }
+
+    pub fn strategy_state(e: Env, strategy_id: BytesN<32>) -> StrategyState {
+        e.storage().persistent().get(&DataKey::StrategyState(strategy_id))
+            .expect("strategy not registered")
+    }
+
+    pub fn set_strategy_active(e: Env, caller: Address, strategy_id: BytesN<32>, active: bool) {
+        Self::auth_admin(&e, &caller);
+        let mut state = Self::load_strategy(&e, &strategy_id);
+        state.active = active;
+        e.storage().persistent().set(&DataKey::StrategyState(strategy_id), &state);
+    }
+
+    /// Move idle Stellar USDC into a strategy. Called by AllocationManager immediately
+    /// before it deposits the same amount into the strategy's adapter contract.
+    /// Does NOT change total assets (idle -> strategy, both counted) and therefore
+    /// does not touch mint_allowance_6 or total_liabilities_6.
+    pub fn move_idle_to_strategy(e: Env, caller: Address, strategy_id: BytesN<32>, amount_6: i128) {
+        Self::auth_allocator(&e, &caller);
+        assert!(amount_6 > 0, "amount must be positive");
+
+        let mut state = Self::load_strategy(&e, &strategy_id);
+        assert!(state.active, "strategy not active");
+        let new_deployed = state.deployed_value_6.checked_add(amount_6).expect("overflow");
+        assert!(new_deployed <= state.debt_ceiling_6, "debt ceiling exceeded");
+        state.deployed_value_6 = new_deployed;
+        state.last_report_ledger = e.ledger().sequence();
+        e.storage().persistent().set(&DataKey::StrategyState(strategy_id.clone()), &state);
+
+        let mut gs: GlobalState = Self::load_gs(&e);
+        assert!(gs.settled_idle_usdc_6 >= amount_6, "insufficient idle USDC");
+        gs.settled_idle_usdc_6 -= amount_6;
+        gs.total_strategy_value_6 = gs.total_strategy_value_6.checked_add(amount_6).expect("overflow");
+        e.storage().instance().set(&DataKey::GlobalState, &gs);
+
+        Self::assert_invariant_internal(&e, &gs);
+        e.events().publish((symbol_short!("ToStrat"), strategy_id), amount_6);
+    }
+
+    /// Move USDC withdrawn from a strategy back into idle. Called by AllocationManager
+    /// after it has already withdrawn `amount_6` from the strategy's adapter contract
+    /// (the adapter-reported amount must be the actually-received balance delta, never
+    /// a requested/quoted figure — enforced at the AllocationManager layer).
+    pub fn move_strategy_to_idle(e: Env, caller: Address, strategy_id: BytesN<32>, amount_6: i128) {
+        Self::auth_allocator(&e, &caller);
+        assert!(amount_6 > 0, "amount must be positive");
+
+        let mut state = Self::load_strategy(&e, &strategy_id);
+        // Withdrawn yield can exceed the tracked principal; clamp deployed_value_6 at 0
+        // rather than underflow — any excess is realized gain being pulled to idle.
+        // `saturating_sub` on a *signed* i128 only guards overflow at i128::MIN, it does
+        // not clamp at 0 — that needs an explicit `.max(0)`.
+        state.deployed_value_6 = (state.deployed_value_6 - amount_6).max(0);
+        state.last_report_ledger = e.ledger().sequence();
+        e.storage().persistent().set(&DataKey::StrategyState(strategy_id.clone()), &state);
+
+        let mut gs: GlobalState = Self::load_gs(&e);
+        gs.settled_idle_usdc_6 = gs.settled_idle_usdc_6.checked_add(amount_6).expect("overflow");
+        gs.total_strategy_value_6 = (gs.total_strategy_value_6 - amount_6).max(0);
+        e.storage().instance().set(&DataKey::GlobalState, &gs);
+
+        Self::assert_invariant_internal(&e, &gs);
+        e.events().publish((symbol_short!("FromStrat"), strategy_id), amount_6);
+    }
+
+    /// Replace a strategy's tracked value with a freshly reported valuation
+    /// (e.g. after interest accrual on the underlying lending pool). Must never
+    /// be used to fabricate mint_allowance_6 — it only ever adjusts
+    /// total_strategy_value_6, which backs liabilities but never mints new ones.
+    pub fn report_strategy_value(e: Env, caller: Address, strategy_id: BytesN<32>, new_value_6: i128) {
+        Self::auth_allocator(&e, &caller);
+        assert!(new_value_6 >= 0, "value must be non-negative");
+
+        let mut state = Self::load_strategy(&e, &strategy_id);
+        let old_value = state.deployed_value_6;
+        state.deployed_value_6 = new_value_6;
+        state.last_report_ledger = e.ledger().sequence();
+        e.storage().persistent().set(&DataKey::StrategyState(strategy_id.clone()), &state);
+
+        let mut gs: GlobalState = Self::load_gs(&e);
+        gs.total_strategy_value_6 = gs.total_strategy_value_6
+            .checked_sub(old_value)
+            .and_then(|v| v.checked_add(new_value_6))
+            .expect("overflow");
+        e.storage().instance().set(&DataKey::GlobalState, &gs);
+
+        Self::assert_invariant_internal(&e, &gs);
+        e.events().publish((symbol_short!("StratVal"), strategy_id), new_value_6);
+    }
+
+    fn load_strategy(e: &Env, strategy_id: &BytesN<32>) -> StrategyState {
+        e.storage().persistent().get(&DataKey::StrategyState(strategy_id.clone()))
+            .expect("strategy not registered")
+    }
+
+    fn auth_allocator(e: &Env, caller: &Address) {
+        let allocator: Address = e.storage().instance().get(&DataKey::Allocator)
+            .expect("allocator not set");
+        assert!(*caller == allocator, "not allocator");
+        caller.require_auth();
     }
 
     // ── Solvency invariant ────────────────────────────────────────────────────
@@ -1071,5 +1224,169 @@ mod test {
         assert_eq!(gs.total_liabilities_6, 3_000_000, "liability restored");
         assert_eq!(gs.settled_idle_usdc_6, 5_000_000, "idle unchanged");
         assert!(client.check_invariant(), "must still be solvent");
+    }
+
+    // ── Strategy allocation (AllocationManager / BlendAdapter integration) ────
+
+    fn strategy_id(e: &Env, tag: u8) -> BytesN<32> {
+        BytesN::from_array(e, &[tag; 32])
+    }
+
+    fn setup_with_allocator() -> (Env, Address, Address, Address, VaultAccountingClient<'static>) {
+        let (e, admin, controller, client) = setup();
+        let allocator = Address::generate(&e);
+        client.set_allocator(&admin, &allocator);
+        (e, admin, controller, allocator, client)
+    }
+
+    #[test]
+    #[should_panic(expected = "not allocator")]
+    fn non_allocator_cannot_move_idle_to_strategy() {
+        let (e, admin, controller, client) = setup();
+        let allocator = Address::generate(&e);
+        client.set_allocator(&admin, &allocator);
+        client.record_local_deposit(&controller, &1_000_000);
+
+        let sid = strategy_id(&e, 1);
+        let adapter = Address::generate(&e);
+        client.register_strategy(&admin, &sid, &adapter, &10_000_000);
+
+        let attacker = Address::generate(&e);
+        client.move_idle_to_strategy(&attacker, &sid, &500_000);
+    }
+
+    #[test]
+    fn move_idle_to_strategy_and_back() {
+        let (e, admin, controller, allocator, client) = setup_with_allocator();
+        // 10% reserve requires idle >= 10% of liabilities; deposit plenty of idle first.
+        client.record_local_deposit(&controller, &10_000_000);
+        client.mint_liability_from_settled_usdc(&controller, &1_000_000);
+
+        let sid = strategy_id(&e, 1);
+        let adapter = Address::generate(&e);
+        client.register_strategy(&admin, &sid, &adapter, &5_000_000);
+
+        client.move_idle_to_strategy(&allocator, &sid, &2_000_000);
+        let gs = client.global_state();
+        assert_eq!(gs.total_strategy_value_6, 2_000_000, "strategy value credited");
+        // settled_idle_usdc_6 was 10_000_000 (mint_liability_from_settled_usdc only moves
+        // mint_allowance_6 -> total_liabilities_6, it does not touch idle); minus the 2M
+        // just deployed to the strategy = 8_000_000.
+        assert_eq!(gs.settled_idle_usdc_6, 8_000_000, "idle reduced");
+        let strat = client.strategy_state(&sid);
+        assert_eq!(strat.deployed_value_6, 2_000_000);
+
+        client.move_strategy_to_idle(&allocator, &sid, &500_000);
+        let gs = client.global_state();
+        assert_eq!(gs.total_strategy_value_6, 1_500_000, "strategy value reduced");
+        assert_eq!(gs.settled_idle_usdc_6, 8_500_000, "idle restored");
+        let strat = client.strategy_state(&sid);
+        assert_eq!(strat.deployed_value_6, 1_500_000);
+    }
+
+    #[test]
+    fn move_strategy_to_idle_with_yield_clamps_at_zero_not_negative() {
+        // Regression test: signed-i128 `saturating_sub` does NOT clamp at zero (only at
+        // i128::MIN), so withdrawing more than the tracked deployed_value_6 (e.g. because
+        // real yield was realized) must not leave deployed_value_6 or
+        // total_strategy_value_6 negative.
+        let (e, admin, controller, allocator, client) = setup_with_allocator();
+        client.record_local_deposit(&controller, &10_000_000);
+
+        let sid = strategy_id(&e, 7);
+        let adapter = Address::generate(&e);
+        client.register_strategy(&admin, &sid, &adapter, &10_000_000);
+        client.move_idle_to_strategy(&allocator, &sid, &2_000_000);
+
+        // Withdraw more than was deployed (2M) — the extra 500k is realized yield.
+        client.move_strategy_to_idle(&allocator, &sid, &2_500_000);
+
+        let gs = client.global_state();
+        assert_eq!(gs.total_strategy_value_6, 0, "clamped at zero, not negative");
+        assert_eq!(gs.settled_idle_usdc_6, 10_500_000, "idle received the full amount including yield");
+        let strat = client.strategy_state(&sid);
+        assert_eq!(strat.deployed_value_6, 0, "clamped at zero, not negative");
+        assert!(client.check_invariant());
+    }
+
+    #[test]
+    #[should_panic(expected = "debt ceiling exceeded")]
+    fn move_idle_to_strategy_respects_debt_ceiling() {
+        let (e, admin, controller, allocator, client) = setup_with_allocator();
+        client.record_local_deposit(&controller, &10_000_000);
+
+        let sid = strategy_id(&e, 2);
+        let adapter = Address::generate(&e);
+        client.register_strategy(&admin, &sid, &adapter, &1_000_000);
+
+        client.move_idle_to_strategy(&allocator, &sid, &1_000_001);
+    }
+
+    #[test]
+    fn report_strategy_value_never_touches_mint_allowance() {
+        let (e, admin, controller, allocator, client) = setup_with_allocator();
+        client.record_local_deposit(&controller, &10_000_000);
+        client.mint_liability_from_settled_usdc(&controller, &1_000_000);
+
+        let sid = strategy_id(&e, 3);
+        let adapter = Address::generate(&e);
+        client.register_strategy(&admin, &sid, &adapter, &10_000_000);
+        client.move_idle_to_strategy(&allocator, &sid, &3_000_000);
+
+        let allowance_before = client.global_state().mint_allowance_6;
+
+        // Interest accrued: adapter now reports the position is worth 3.3M instead of 3M.
+        client.report_strategy_value(&allocator, &sid, &3_300_000);
+
+        let gs = client.global_state();
+        assert_eq!(gs.total_strategy_value_6, 3_300_000, "yield reflected in strategy value");
+        assert_eq!(gs.mint_allowance_6, allowance_before, "value report must never mint allowance");
+
+        let strat = client.strategy_state(&sid);
+        assert_eq!(strat.deployed_value_6, 3_300_000);
+    }
+
+    #[test]
+    fn report_strategy_value_can_report_a_loss() {
+        let (e, admin, controller, allocator, client) = setup_with_allocator();
+        client.record_local_deposit(&controller, &10_000_000);
+
+        let sid = strategy_id(&e, 4);
+        let adapter = Address::generate(&e);
+        client.register_strategy(&admin, &sid, &adapter, &10_000_000);
+        client.move_idle_to_strategy(&allocator, &sid, &2_000_000);
+
+        // Loss: strategy now worth less than deployed.
+        client.report_strategy_value(&allocator, &sid, &1_800_000);
+        let gs = client.global_state();
+        assert_eq!(gs.total_strategy_value_6, 1_800_000);
+    }
+
+    #[test]
+    #[should_panic(expected = "strategy not active")]
+    fn move_idle_to_strategy_blocked_when_inactive() {
+        let (e, admin, controller, allocator, client) = setup_with_allocator();
+        client.record_local_deposit(&controller, &10_000_000);
+
+        let sid = strategy_id(&e, 5);
+        let adapter = Address::generate(&e);
+        client.register_strategy(&admin, &sid, &adapter, &10_000_000);
+        client.set_strategy_active(&admin, &sid, &false);
+
+        client.move_idle_to_strategy(&allocator, &sid, &1_000_000);
+    }
+
+    #[test]
+    #[should_panic(expected = "allocator not set")]
+    fn strategy_move_fails_before_allocator_configured() {
+        let (e, admin, controller, client) = setup();
+        client.record_local_deposit(&controller, &10_000_000);
+
+        let sid = strategy_id(&e, 6);
+        let adapter = Address::generate(&e);
+        client.register_strategy(&admin, &sid, &adapter, &10_000_000);
+
+        let someone = Address::generate(&e);
+        client.move_idle_to_strategy(&someone, &sid, &1_000_000);
     }
 }

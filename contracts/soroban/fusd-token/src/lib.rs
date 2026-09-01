@@ -263,7 +263,7 @@ mod test {
     #[test]
     #[should_panic(expected = "already initialized")]
     fn double_initialize_fails() {
-        let (e, admin, controller, client) = setup();
+        let (_e, admin, controller, client) = setup();
         // Second call must panic.
         client.initialize(&admin, &controller);
     }

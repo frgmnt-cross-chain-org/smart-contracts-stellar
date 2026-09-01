@@ -383,7 +383,7 @@ fUSD is **6 decimals on all chains** — Stellar, EVM, and Solana. This keeps
 │  │    assets >= liabilities  AND  idle >= liabilities * reserve_bps     │   │
 │  └──────────────────────────────────────────────────────────────────────┘   │
 │                                                                              │
-│  (Future) AllocationManager · GovernanceController · BlendAdapter · SfUsdVault│
+│  AllocationManager · BlendAdapter (implemented) · (Future) GovernanceController · SfUsdVault│
 └──────────────────────────────────────────────────────────────────────────────┘
 ```
 

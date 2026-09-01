@@ -16,6 +16,8 @@ contracts/
     fusd-token/           SEP-41 fUSD token (Soroban)
     vault-accounting/     Canonical accounting hub (Soroban)
     mint-redeem-controller/  User entry point — deposit, redeem, remote mint auth
+    allocation-manager/   Governance-gated strategy orchestration (idle USDC <-> adapters)
+    blend-adapter/        Strategy adapter for Blend Protocol lending pools (V1 and V2)
   evm/
     src/
       RemoteFusd.sol      ERC-20 fUSD token on EVM spokes
@@ -50,12 +52,32 @@ docs/
 cargo test --workspace
 ```
 
-All three Soroban crates include unit tests covering:
+All five Soroban crates include unit tests (84 total) covering:
 - `fusd-token`: mint/burn, non-controller rejection, pause guard
 - `vault-accounting`: solvency invariant, CCTP replay protection, collateral-release guard,
-  fast-credit finalization (no double-mint), stuck-ack recovery
+  fast-credit finalization (no double-mint), stuck-ack recovery, strategy allocation
+  accounting (debt ceilings, yield/loss reporting never touching mint allowance)
 - `mint-redeem-controller`: fee CRIT-1 (no fee_recipient in manager call), decimal dust,
-  daily redeem limit rollover
+  daily redeem limit rollover, gross-vs-net deposit fee accounting, real SEP-41 token
+  transfers via a live Stellar Asset Contract test double
+- `allocation-manager`: role-gated allocate/deallocate/emergency-exit orchestration across
+  VaultAccounting, MintRedeemController, and a strategy adapter, end-to-end with real
+  token movement
+- `blend-adapter`: deposit/withdraw against a mock Blend pool with real SAC token
+  transfers, V1-vs-V2 valuation behavior, balance-delta-based slippage protection,
+  exposure caps, pause semantics
+
+### Strategy allocation layer (Blend Protocol integration)
+
+`allocation-manager` and `blend-adapter` implement the "(Future)" `AllocationManager` /
+`BlendAdapter` pieces from [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md#51-soroban-contracts-hub):
+idle Stellar USDC can be moved into a Blend lending pool (either
+[blend-contracts](https://github.com/blend-capital/blend-contracts) "V1" or
+[blend-contracts-v2](https://github.com/blend-capital/blend-contracts-v2)) and back, with
+V2's live `get_reserve` interest-rate reporting used for valuation where available, and a
+conservative principal-tracking fallback for V1 pools (which do not expose that view).
+`blend-adapter/src/blend_pool.rs` documents exactly which parts of the interface are
+version-specific.
 
 ---
 

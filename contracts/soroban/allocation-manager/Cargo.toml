@@ -1,5 +1,5 @@
 [package]
-name = "mint-redeem-controller"
+name = "allocation-manager"
 version = "0.1.0"
 edition = "2021"
 
@@ -11,5 +11,6 @@ soroban-sdk = { workspace = true }
 
 [dev-dependencies]
 soroban-sdk = { workspace = true, features = ["testutils"] }
-fusd-token = { path = "../fusd-token" }
 vault-accounting = { path = "../vault-accounting" }
+mint-redeem-controller = { path = "../mint-redeem-controller" }
+fusd-token = { path = "../fusd-token" }

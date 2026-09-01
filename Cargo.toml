@@ -4,6 +4,8 @@ members = [
     "contracts/soroban/fusd-token",
     "contracts/soroban/vault-accounting",
     "contracts/soroban/mint-redeem-controller",
+    "contracts/soroban/blend-adapter",
+    "contracts/soroban/allocation-manager",
 ]
 
 [workspace.dependencies]
