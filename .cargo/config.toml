@@ -1,2 +1,18 @@
-[target.wasm32-unknown-unknown]
-rustflags = ["-C", "target-feature=-reference-types"]
+# `wasm32v1-none` is the deployable target for all Soroban contracts in this
+# workspace — it's Rust's dedicated "frozen at WebAssembly MVP + the exact set of
+# proposals Soroban's host supports" target, so it never silently drifts as the
+# default `wasm32-unknown-unknown` target's codegen evolves with the toolchain.
+#
+# `wasm32-unknown-unknown` used to be paired with `-C target-feature=-reference-types`
+# to get the same result, but on current Rust (1.94 as of writing) that combination
+# produces a WASM module the Soroban host rejects at deploy time with
+# "reference-types not enabled: zero byte expected" — std/core's `wasm32-unknown-unknown`
+# codegen now assumes reference-types regardless of the flag, so disabling the target
+# feature just makes the declared header disagree with the actual bytecode. This does
+# NOT show up in `cargo test`, which runs natively rather than through the wasm host —
+# only an actual deploy (or `stellar contract deploy`) surfaces it. Verified by deploying
+# built contracts to Stellar testnet 2026-09-02.
+#
+# Build with: cargo build --target wasm32v1-none --release
+[target.wasm32v1-none]
+rustflags = []

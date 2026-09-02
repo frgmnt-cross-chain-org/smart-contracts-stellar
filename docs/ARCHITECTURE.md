@@ -72,7 +72,7 @@ chain — not even Base — can mint or burn fUSD without a verified Stellar hub
 │  │  pause              │  │  StrategyState[]      │  │  authorize_remote_mint │   │
 │  └─────────────────────┘  └───────────────────────┘  └────────────────────────┘   │
 │                                                                                     │
-│  Runtime: Soroban (Rust, wasm32-unknown-unknown, no_std)                            │
+│  Runtime: Soroban (Rust, wasm32v1-none, no_std)                                     │
 │  Storage: Soroban Persistent + Instance ledger entries                              │
 │  Token standard: SEP-41                                                             │
 └──────────────────────┬──────────────────────────────────────────────────────────────┘
@@ -144,7 +144,7 @@ chain — not even Base — can mint or burn fUSD without a verified Stellar hub
 
 Soroban is Stellar's smart contract platform. Contracts are:
 
-- Written in **Rust**, compiled to **wasm32-unknown-unknown** with `no_std`
+- Written in **Rust**, compiled to **wasm32v1-none** with `no_std`
 - Deployed as immutable WASM blobs, identified by a 32-byte hash
 - Invoked through Stellar transactions with the `InvokeHostFunction` operation
 - Storage is keyed per-contract using Soroban's ledger entry model (Persistent / Instance / Temporary TTLs)
@@ -152,19 +152,22 @@ Soroban is Stellar's smart contract platform. Contracts are:
 Build target:
 
 ```bash
-cargo build --target wasm32-unknown-unknown --release
-soroban contract optimize --wasm target/.../contract.wasm
+cargo build --workspace --target wasm32v1-none --release
+stellar contract optimize --wasm target/wasm32v1-none/release/<contract>.wasm
 ```
 
-The PoC build order matters because `mint-redeem-controller` imports the ABI of
-`vault-accounting` via `contractimport!` at compile time:
+**`wasm32v1-none`, not `wasm32-unknown-unknown`** — see `docs/POC_GUIDE.md` "Build
+reproducibility" for why (on current Rust, `wasm32-unknown-unknown` produces a module
+the Soroban host rejects at deploy time; `cargo test` never catches this since it runs
+natively). Verified by deploying to Stellar testnet — see
+`docs/CROSS_CHAIN_FUSD_TECHNICAL_SPEC.md` §8.6.
 
-```
-fusd-token  ──────────────────────────────────────┐
-vault-accounting  ─────────────────────────────────┤
-                                                    ▼
-                                    mint-redeem-controller
-```
+No cross-crate build order dependency: every hub contract that calls another declares a
+hand-written `contractclient` interface trait for the subset of that contract's public
+interface it actually uses, rather than importing a compiled ABI via `contractimport!`
+— so `fusd-token`, `vault-accounting`, `mint-redeem-controller`, and the strategy layer
+(`allocation-manager` + adapters) all compile independently, in any order, from a clean
+checkout.
 
 ### 4.2 SEP-41 Token Standard
 

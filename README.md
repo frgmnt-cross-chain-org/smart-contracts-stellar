@@ -41,7 +41,7 @@ docs/
 | Tool | Version |
 |------|---------|
 | Rust + `cargo` | stable ≥ 1.78 |
-| `soroban-cli` | ≥ 21.x |
+| `stellar` CLI (formerly `soroban-cli`) | ≥ 22.x |
 | Foundry (`forge`) | latest |
 | Node.js (optional, for scripts) | ≥ 18 |
 
@@ -107,6 +107,16 @@ purely so a future, independently audited Blend V3 can be evaluated later withou
 rewrite — it must not be registered against a live Blend V1/V2 pool.
 `blend-adapter/src/blend_pool.rs` documents exactly which parts of the V1/V2 interface
 were verified.
+
+**`defindex-adapter`'s interface has been verified against a real, live deFindex vault
+on Stellar testnet** — not just read from source: `stellar contract info interface`
+pulled the actual deployed contract's spec from the ledger, and `defindex-adapter` was
+deployed and initialized against it, exercising real cross-contract calls that returned
+correct results. See [`docs/CROSS_CHAIN_FUSD_TECHNICAL_SPEC.md` §8.6](docs/CROSS_CHAIN_FUSD_TECHNICAL_SPEC.md#86-live-testnet-verification-2026-09-02)
+for exactly what was and wasn't covered (a full deposit/withdraw round trip needs
+testnet USDC of a specific third-party issuer this session doesn't control) — that pass
+also caught a real, otherwise-invisible-to-`cargo test` build target bug, now fixed (see
+`docs/POC_GUIDE.md` "Build reproducibility").
 
 See [`docs/CROSS_CHAIN_FUSD_TECHNICAL_SPEC.md` §8](docs/CROSS_CHAIN_FUSD_TECHNICAL_SPEC.md#8-stellar-strategy-adapters)
 for the full design rationale and per-adapter risk notes.

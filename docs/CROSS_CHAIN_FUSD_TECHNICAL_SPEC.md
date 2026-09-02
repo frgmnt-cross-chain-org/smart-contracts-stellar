@@ -1501,6 +1501,49 @@ trade-offs that were reviewed and documented rather than code-patched:
   worth a governance runbook note: misconfiguring only one of the two `set_allocator`
   calls after a redeploy bricks allocation rather than failing loudly at config time.
 
+### 8.6 Live Testnet Verification (2026-09-02)
+
+`defindex-adapter`'s hand-written `defindex_vault.rs` interface (§8.3) was verified
+against a real, currently-live deFindex vault on Stellar testnet — not just read from
+source, actually deployed and called on-chain:
+
+- **Interface diff.** `stellar contract info interface --id
+  CBMVK2JK6NTOT2O4HNQAIQFJY232BHKGLIMXDVQVHIIZKDACXDFZDWHN --network testnet` pulled the
+  real, deployed contract's spec directly from the ledger. Every function this adapter
+  calls (`deposit`, `withdraw`, `fetch_total_managed_funds`,
+  `get_asset_amounts_per_shares`) and every struct it decodes
+  (`AssetInvestmentAllocation`, `CurrentAssetInvestmentAllocation`, `StrategyAllocation`)
+  matched field-for-field. (Parameter *names* differ in one place — the real contract
+  calls its withdraw-shares argument `withdraw_shares`, this adapter's interface calls
+  it `df_amount` — which does not affect on-chain compatibility: Soroban dispatches
+  cross-contract calls positionally by name+type, not by parameter name.)
+- **Real deployment.** `defindex-adapter` and `xycloans-adapter` were both deployed to
+  Stellar testnet from this repo's actual build output and initialized (`defindex-adapter`
+  pointed at the vault above). `defindex-adapter.asset()` and `.value_usdc_6()` were
+  called live, exercising real cross-contract calls into the vault
+  (`token::Client(vault).balance(this)`, `get_asset_amounts_per_shares`), and returned
+  correct results (`0`, since the freshly-initialized adapter holds no shares yet).
+  `get_asset_amounts_per_shares` was also called directly against the vault to confirm
+  the `Vec<i128>` return type decodes correctly.
+- **What this does NOT cover:** a full `deposit`/`withdraw` round trip through the
+  adapter. That vault's configured asset is a specific testnet USDC SAC controlled by a
+  third-party issuer this session has no mint authority over, and there is no public
+  faucet for it; synthesizing a brand-new test vault with a self-controlled asset would
+  require also deploying a deFindex-compatible strategy contract, which is out of scope
+  for verifying this adapter specifically. The share-accounting math this exercises
+  (`deposit`/`withdraw`'s balance-delta handling, proportional-redemption rounding) is
+  covered by `defindex-adapter`'s own mock-based unit test suite instead (§ README
+  "Running Soroban tests").
+- **Real bug found and fixed by this exercise:** the workspace's build target
+  (`wasm32-unknown-unknown`, with or without the `.cargo/config.toml`
+  `-reference-types` workaround) produced a WASM module the Soroban testnet host
+  rejected at deploy time — invisible to `cargo test`, which runs natively rather than
+  through the wasm host, so 129 passing unit tests gave no signal either way. Fixed by
+  switching the whole workspace to the `wasm32v1-none` target (see `docs/POC_GUIDE.md`
+  "Build reproducibility"). This is exactly the kind of gap that only surfaces by
+  actually deploying, which is why this verification pass was worth doing beyond the
+  existing mock-based test suites.
+
 ## 9. Remote Chain Contracts
 
 ### 9.1 EVM `RemoteRouter`

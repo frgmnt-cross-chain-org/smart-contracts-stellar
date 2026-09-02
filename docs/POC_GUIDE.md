@@ -458,20 +458,31 @@ use 6-decimal values.
 
 ## Build reproducibility
 
-```bash
-# From repo root — must build in this order (controller imports vault ABI)
-RUSTFLAGS="-C target-feature=-reference-types" \
-  cargo build --target wasm32-unknown-unknown --release -p fusd-token
-RUSTFLAGS="-C target-feature=-reference-types" \
-  cargo build --target wasm32-unknown-unknown --release -p vault-accounting
-RUSTFLAGS="-C target-feature=-reference-types" \
-  cargo build --target wasm32-unknown-unknown --release -p mint-redeem-controller
+Every crate compiles standalone — none of the hub contracts depend on another crate's
+pre-built WASM (each declares a hand-written `contractclient` interface for the other
+contracts it calls, rather than importing a compiled ABI), so there is no required
+build order.
 
-# Optimize for deployment
-soroban contract optimize --wasm target/wasm32-unknown-unknown/release/fusd_token.wasm
-soroban contract optimize --wasm target/wasm32-unknown-unknown/release/vault_accounting.wasm
-soroban contract optimize --wasm target/wasm32-unknown-unknown/release/mint_redeem_controller.wasm
+```bash
+# From repo root — builds all seven Soroban crates
+cargo build --workspace --target wasm32v1-none --release
+
+# Optimize each for deployment
+stellar contract optimize --wasm target/wasm32v1-none/release/fusd_token.wasm
+stellar contract optimize --wasm target/wasm32v1-none/release/vault_accounting.wasm
+stellar contract optimize --wasm target/wasm32v1-none/release/mint_redeem_controller.wasm
+stellar contract optimize --wasm target/wasm32v1-none/release/allocation_manager.wasm
+stellar contract optimize --wasm target/wasm32v1-none/release/blend_adapter.wasm
+stellar contract optimize --wasm target/wasm32v1-none/release/defindex_adapter.wasm
+stellar contract optimize --wasm target/wasm32v1-none/release/xycloans_adapter.wasm
 ```
 
-> The `.cargo/config.toml` at the repo root sets `target-feature=-reference-types`
-> automatically, so you can also just run `cargo build ...` without the env var prefix.
+> **`wasm32v1-none`, not `wasm32-unknown-unknown`.** On current Rust (1.94 as of
+> writing), `wasm32-unknown-unknown` — with or without the older
+> `-C target-feature=-reference-types` workaround — produces a module the Soroban host
+> rejects at deploy time with `"reference-types not enabled: zero byte expected"`.
+> `cargo test` never surfaces this (it runs natively, not through the wasm host) — only
+> an actual deploy does. `wasm32v1-none` is Rust's dedicated target for exactly this
+> case and is what `.cargo/config.toml` and every command above targets. Verified by
+> deploying `defindex-adapter` and `xycloans-adapter` to Stellar testnet 2026-09-02 (see
+> `docs/CROSS_CHAIN_FUSD_TECHNICAL_SPEC.md` §8.6).
