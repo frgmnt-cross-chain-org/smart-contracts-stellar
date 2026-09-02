@@ -756,6 +756,16 @@ pub trait MintRedeemController {
         // amount_6 removed: do NOT accept from relayer. Compute internally via balance delta.
         // See §10.2A. cctp_message_amount_6 is only available via the Circle-attested message.
     );
+    // Implementation status (2026-09-02): `mint-redeem-controller`'s current
+    // `receive_cctp_settlement` still accepts a `mock_net_received_6` parameter
+    // directly — the balance-delta computation this trait describes requires a real
+    // Stellar CCTP `receive_message` integration this repo does not yet vendor. What
+    // IS implemented: the function is gated to a single admin-appointed `Relayer`
+    // address (`set_relayer`) rather than being fully permissionless, closing the
+    // "anyone can mint themselves fUSD" path that existed once the local-mint
+    // recipient became caller-directable. Do not treat the credited amount as
+    // trustworthy until the real balance-delta computation this trait specifies is
+    // implemented.
 
     fn redeem_remote(
         e: Env,
@@ -951,6 +961,19 @@ pub trait AllocationManager {
     fn emergency_exit(e: Env, guardian: Address, strategy_id: BytesN<32>, max_loss_bps: u32);
 }
 ```
+
+**Implementation status (2026-09-02):** the `allocation-manager` crate implements a
+scoped-down subset of this trait — single-strategy `allocate`/`deallocate`/
+`deallocate_all`/`report_value`/`emergency_exit` with debt-ceiling and active/enabled
+flags, but no `AllocationTarget`/`AllocationRoute`/guard-set/route-nonce machinery, no
+manager-selectable-strategy weighting, and no CCTP-remote route execution — those remain
+aspirational. Its actual `emergency_exit(e, caller, strategy_id, min_out_6)` takes an
+absolute USDC floor from the admin caller rather than this trait's `max_loss_bps`
+percentage; `caller` must be the shared governance address that also administers every
+registered adapter's own `Admin`, since `emergency_exit` relays that caller through to
+the adapter's own Admin-gated `emergency_exit` rather than substituting
+AllocationManager's own contract address (an earlier version of this code had that bug —
+see `../README.md` "Key security properties demonstrated" §9).
 
 Rules:
 
@@ -1434,6 +1457,49 @@ lp_value_for_backing = min(oracle_value, withdrawal_quote) * haircut_bps / 10000
 ```
 
 Default: do not count Aquarius LP toward primary redemption backing until validated.
+
+### 8.5 Known Tradeoffs and Audit Notes (2026-09-02)
+
+A self-audit of the strategy-allocation layer (`allocation-manager`, `blend-adapter`,
+`defindex-adapter`, `xycloans-adapter`, plus the `vault-accounting`/
+`mint-redeem-controller` changes that support it) found and fixed several real
+correctness/security bugs — see the "Key security properties demonstrated" §1 and §9
+entries in `../README.md` for the two most severe (a fully permissionless mint path, and
+a broken `emergency_exit` caller relay). This subsection records residual, deliberate
+trade-offs that were reviewed and documented rather than code-patched:
+
+- **The three adapters (`blend-adapter`, `defindex-adapter`, `xycloans-adapter`) are
+  independently self-contained rather than sharing a common crate**, even though their
+  `initialize`/`set_paused`/`set_max_exposure`/`sweep`/config/auth-helper scaffolding is
+  near-identical. This is a deliberate choice, not an oversight: extracting a shared
+  `strategy-adapter-common` crate this late would touch security-critical,
+  money-moving code in all three at once for a maintenance-cost improvement, trading a
+  known, already-tested risk profile for an unknown one. Isolation also means a bug
+  introduced while adding a fourth adapter (or patching a shared helper) cannot
+  simultaneously compromise integrations that were already live and audited
+  independently. Revisit if a fourth adapter is added and the duplication cost
+  clearly outweighs this isolation benefit.
+- **`AllocationManager.allocate` hardcodes a 7-decimal USDC conversion**
+  (`amount_6 * 10`) rather than deriving it from each adapter's own configured
+  `asset_decimals`. This is safe today — every registered adapter's config asserts
+  `asset_decimals >= 6` and all three shipped adapters are configured for 7 (Stellar
+  SAC USDC) — but it is a latent assumption, not an enforced invariant. Registering a
+  future adapter configured for a different-decimals token would desynchronize real
+  token movement from `VaultAccounting`'s 6-decimal books. `register_strategy` does
+  cross-check that an adapter's `asset()` matches the hub's actual USDC SAC address
+  (added in this audit pass), which catches a wrong-token misconfiguration but not a
+  correct-token-wrong-decimals one.
+- **`VaultAccounting.report_strategy_value` is not bounded by a strategy's
+  `debt_ceiling_6`**, by design — the ceiling caps how much new principal
+  `move_idle_to_strategy` may *deploy*, not how large a position's *value* may grow from
+  real, externally-verified yield. See the inline doc comment on that function.
+- **`MintRedeemController` and `VaultAccounting` each store their own independent
+  `Allocator` address** (set via separate admin calls) rather than one shared
+  configuration. In the intended usage pattern — `AllocationManager.allocate()` calling
+  both atomically in the same transaction — a mismatch just reverts the whole
+  transaction rather than silently desyncing accounting, so this is safe in practice but
+  worth a governance runbook note: misconfiguring only one of the two `set_allocator`
+  calls after a redeploy bricks allocation rather than failing loudly at config time.
 
 ## 9. Remote Chain Contracts
 

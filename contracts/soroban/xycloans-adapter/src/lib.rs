@@ -108,6 +108,16 @@ impl XycloansAdapter {
         Self::native_to_usdc6(total_native, config.asset_decimals)
     }
 
+    /// Deployed principal only (excludes matured, unharvested fees) — present for
+    /// interface parity with `blend-adapter`/`defindex-adapter`, both of which expose
+    /// this as a locally-tracked figure. xycLoans needs no local tracking for it: shares
+    /// are always exactly 1:1 with deposited principal, so this is just the pool's own
+    /// `shares` balance read live rather than cached.
+    pub fn deployed_principal_6(e: Env) -> i128 {
+        let config = Self::load_config(&e);
+        Self::principal_usdc6(&e, &config)
+    }
+
     // ── Allocator-gated actions ───────────────────────────────────────────────
 
     /// Supply `amount_6` USDC into the pool. `min_shares` is enforced against the
@@ -121,14 +131,17 @@ impl XycloansAdapter {
         let config = Self::load_config(&e);
         assert!(!config.paused, "adapter paused");
 
-        let principal_before_6 = Self::principal_usdc6(&e, &config);
-        let new_principal_6 = principal_before_6.checked_add(amount_6).expect("overflow");
-        assert!(new_principal_6 <= config.max_protocol_exposure_6, "max protocol exposure exceeded");
-
         let pool = PoolClient::new(&e, &config.pool);
         let this = e.current_contract_address();
 
+        // Single `pool.shares` read serves both the exposure-cap check and the
+        // pre-deposit baseline for the post-deposit slippage check below — no need for
+        // two separate cross-contract calls returning the identical value.
         let shares_before = pool.shares(&this);
+        let principal_before_6 = Self::native_to_usdc6(shares_before, config.asset_decimals);
+        let new_principal_6 = principal_before_6.checked_add(amount_6).expect("overflow");
+        assert!(new_principal_6 <= config.max_protocol_exposure_6, "max protocol exposure exceeded");
+
         let amount_native = Self::usdc6_to_native(amount_6, config.asset_decimals);
         pool.deposit(&this, &amount_native);
         let shares_after = pool.shares(&this);
@@ -452,6 +465,7 @@ mod test {
         assert_eq!(h.token.balance(&h.adapter.address), 900_000_000);
         assert_eq!(h.token.balance(&h.pool), 100_000_000);
         assert_eq!(h.adapter.value_usdc_6(), 10_000_000, "1:1 shares, no rate approximation");
+        assert_eq!(h.adapter.deployed_principal_6(), 10_000_000);
     }
 
     #[test]

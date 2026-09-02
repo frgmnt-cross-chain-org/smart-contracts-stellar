@@ -39,6 +39,7 @@ mod controller {
     #[contractclient(name = "Client")]
     pub trait ControllerInterface {
         fn move_idle_to_allocator(e: Env, caller: Address, to: Address, amount_7: i128);
+        fn usdc_sac(e: Env) -> Address;
     }
 }
 
@@ -51,6 +52,7 @@ mod strategy_adapter {
     #[allow(dead_code)]
     #[contractclient(name = "Client")]
     pub trait StrategyAdapterInterface {
+        fn asset(e: Env) -> Address;
         fn deposit(e: Env, caller: Address, amount_6: i128, min_shares: i128);
         fn withdraw(e: Env, caller: Address, amount_6: i128, min_out_6: i128) -> i128;
         fn withdraw_all(e: Env, caller: Address, min_out_6: i128) -> i128;
@@ -118,6 +120,15 @@ impl AllocationManager {
             "strategy already registered"
         );
 
+        // The adapter's own configured asset must match the hub's actual USDC SAC — a
+        // misregistered adapter (wrong `usdc_token` in its own config) would receive
+        // real USDC from the controller but run its balance-delta accounting against a
+        // different token entirely, silently breaking every slippage/valuation check it
+        // relies on.
+        let adapter_asset = strategy_adapter::Client::new(&e, &adapter).asset();
+        let hub_usdc = Self::controller_client(&e).usdc_sac();
+        assert!(adapter_asset == hub_usdc, "adapter asset does not match hub USDC SAC");
+
         let vault = Self::vault_client(&e);
         vault.register_strategy(&caller, &strategy_id, &adapter, &debt_ceiling_6);
 
@@ -127,7 +138,12 @@ impl AllocationManager {
             deposit_enabled: true,
             withdraw_enabled: true,
         };
-        e.storage().persistent().set(&DataKey::Strategy(strategy_id.clone()), &entry);
+        let key = DataKey::Strategy(strategy_id.clone());
+        e.storage().persistent().set(&key, &entry);
+        // 5-year floor TTL — a registered strategy may go untouched (paused, or simply
+        // not allocated/deallocated/report_value'd) for long stretches and must not be
+        // archived out from under `load_strategy` in the meantime.
+        e.storage().persistent().extend_ttl(&key, 13_140_000, 13_140_000);
         e.events().publish((symbol_short!("StratReg"),), strategy_id);
     }
 
@@ -144,7 +160,9 @@ impl AllocationManager {
         entry.active = active;
         entry.deposit_enabled = deposit_enabled;
         entry.withdraw_enabled = withdraw_enabled;
-        e.storage().persistent().set(&DataKey::Strategy(strategy_id), &entry);
+        let key = DataKey::Strategy(strategy_id);
+        e.storage().persistent().set(&key, &entry);
+        e.storage().persistent().extend_ttl(&key, 13_140_000, 13_140_000);
     }
 
     pub fn strategy(e: Env, strategy_id: BytesN<32>) -> StrategyEntry {
@@ -207,12 +225,20 @@ impl AllocationManager {
 
     /// Governance-only: pull the entire position out regardless of `withdraw_enabled` /
     /// `active` / the adapter's own paused flag or exposure cap.
-    pub fn emergency_exit(e: Env, caller: Address, strategy_id: BytesN<32>) -> i128 {
+    ///
+    /// Relays the ORIGINAL `caller` to the adapter, not this contract's own address:
+    /// every adapter's `emergency_exit` is gated on that adapter's own configured
+    /// `Admin` (governance), which is a separate identity from `Allocator` (this
+    /// contract's own address). This only works when the same governance address
+    /// administers both AllocationManager and each registered adapter — the same
+    /// shared-governance assumption `register_strategy` already documents for
+    /// VaultAccounting.
+    pub fn emergency_exit(e: Env, caller: Address, strategy_id: BytesN<32>, min_out_6: i128) -> i128 {
         Self::auth_admin(&e, &caller);
         let entry = Self::load_strategy(&e, &strategy_id);
 
         let out_6 = strategy_adapter::Client::new(&e, &entry.adapter)
-            .emergency_exit(&e.current_contract_address(), &0);
+            .emergency_exit(&caller, &min_out_6);
         Self::settle_withdrawal(&e, &strategy_id, &entry, out_6);
         out_6
     }
@@ -292,6 +318,7 @@ mod test {
 
     #[contracttype]
     enum MockKey {
+        Admin,
         Allocator,
         Token,
         Value,
@@ -302,7 +329,14 @@ mod test {
 
     #[contractimpl]
     impl MockAdapter {
-        pub fn init(e: Env, allocator: Address, token: Address) {
+        // Mirrors the real adapters' `Admin` (governance) / `Allocator`
+        // (AllocationManager) split exactly — `emergency_exit` gates on `Admin`,
+        // everything else gates on `Allocator`. An earlier version of this mock gated
+        // `emergency_exit` on `Allocator` too, which masked a real bug where
+        // AllocationManager relayed its own contract address instead of the original
+        // admin caller into the adapter's `emergency_exit` call.
+        pub fn init(e: Env, admin: Address, allocator: Address, token: Address) {
+            e.storage().instance().set(&MockKey::Admin, &admin);
             e.storage().instance().set(&MockKey::Allocator, &allocator);
             e.storage().instance().set(&MockKey::Token, &token);
             e.storage().instance().set(&MockKey::Value, &0_i128);
@@ -317,10 +351,20 @@ mod test {
             assert!(*caller == allocator, "not allocator");
             caller.require_auth();
         }
+
+        fn auth_admin(e: &Env, caller: &Address) {
+            let admin: Address = e.storage().instance().get(&MockKey::Admin).unwrap();
+            assert!(*caller == admin, "not admin");
+            caller.require_auth();
+        }
     }
 
     #[contractimpl]
     impl strategy_adapter::StrategyAdapterInterface for MockAdapter {
+        fn asset(e: Env) -> Address {
+            e.storage().instance().get(&MockKey::Token).unwrap()
+        }
+
         fn deposit(e: Env, caller: Address, amount_6: i128, _min_shares: i128) {
             Self::auth(&e, &caller);
             let v: i128 = e.storage().instance().get(&MockKey::Value).unwrap_or(0);
@@ -345,7 +389,11 @@ mod test {
         }
 
         fn emergency_exit(e: Env, caller: Address, min_out_6: i128) -> i128 {
-            Self::withdraw_all(e, caller, min_out_6)
+            Self::auth_admin(&e, &caller);
+            let v: i128 = e.storage().instance().get(&MockKey::Value).unwrap_or(0);
+            assert!(v >= min_out_6, "slippage");
+            e.storage().instance().set(&MockKey::Value, &0_i128);
+            v
         }
 
         fn value_usdc_6(e: Env) -> i128 {
@@ -409,7 +457,7 @@ mod test {
         vault.initialize(&admin, &controller_id, &27, &1000);
         controller.initialize(&admin, &fusd_id, &vault_id, &usdc_addr, &0, &0, &fee_recipient);
         manager.initialize(&admin, &operator, &vault_id, &controller_id);
-        adapter_admin.init(&manager_id, &usdc_addr);
+        adapter_admin.init(&admin, &manager_id, &usdc_addr);
 
         // Wire the AllocationManager as the sole allocator on every contract it
         // orchestrates — this is the real production wiring, not a test shortcut.
@@ -495,13 +543,41 @@ mod test {
 
     #[test]
     fn emergency_exit_bypasses_withdraw_disabled_flag() {
+        // Also the primary regression coverage for a real bug: AllocationManager used to
+        // relay its own contract address to the adapter's `emergency_exit` instead of
+        // the original admin `caller`. Every real adapter (blend/defindex/xycloans)
+        // gates `emergency_exit` on its own separately-configured `Admin`, distinct from
+        // `Allocator` (= this manager's address) — MockAdapter now mirrors that split,
+        // so this call only succeeds because the fix correctly relays `h.admin` through.
         let h = setup();
         h.manager.allocate(&h.operator, &h.strategy_id, &30_000_000, &0);
         h.manager.set_strategy_flags(&h.admin, &h.strategy_id, &true, &true, &false);
 
-        let out = h.manager.emergency_exit(&h.admin, &h.strategy_id);
+        let out = h.manager.emergency_exit(&h.admin, &h.strategy_id, &1);
         assert_eq!(out, 30_000_000);
         assert_eq!(h.usdc.balance(&h.controller.address), 1_000_000_000, "all capital returned");
+    }
+
+    #[test]
+    #[should_panic(expected = "not admin")]
+    fn emergency_exit_rejects_non_admin_even_though_it_is_a_valid_operator() {
+        // The Operator role (who can allocate/deallocate normally) must not be able to
+        // trigger the governance-only emergency path just by being a legitimate signer
+        // for other entry points.
+        let h = setup();
+        h.manager.allocate(&h.operator, &h.strategy_id, &30_000_000, &0);
+        h.manager.emergency_exit(&h.operator, &h.strategy_id, &1);
+    }
+
+    #[test]
+    #[should_panic(expected = "slippage")]
+    fn emergency_exit_enforces_caller_supplied_min_out() {
+        // Regression test: emergency_exit previously hardcoded min_out_6 = 0, so the
+        // one withdrawal path meant for adverse conditions had no slippage protection
+        // at all — an admin now has a real floor to require.
+        let h = setup();
+        h.manager.allocate(&h.operator, &h.strategy_id, &30_000_000, &0);
+        h.manager.emergency_exit(&h.admin, &h.strategy_id, &30_000_001);
     }
 
     #[test]

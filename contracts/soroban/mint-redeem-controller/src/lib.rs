@@ -63,6 +63,10 @@ mod vault_accounting {
         );
         fn confirm_remote_mint_executed(e: Env, caller: Address, mint_auth_id: BytesN<32>);
         fn accept_remote_burn(e: Env, caller: Address, burn_id: BytesN<32>, chain_id: u32, amount_6: i128);
+        /// Read-only: the hub's currently tracked idle USDC (6 decimals). Used to bound
+        /// `move_idle_to_allocator` against real accounting rather than trusting the
+        /// Allocator's requested amount alone.
+        fn settled_idle_usdc_6(e: Env) -> i128;
     }
 }
 
@@ -80,6 +84,7 @@ pub enum DataKey {
     FeeRecipient,
     Paused,
     Allocator,        // AllocationManager — the only address that may pull idle USDC out
+    Relayer,          // admin-appointed address permitted to submit CCTP settlements
 }
 
 // ── Redeem request (two-phase state machine for remote redeems) ───────────────
@@ -165,10 +170,7 @@ impl MintRedeemController {
         user.require_auth();
         Self::assert_active(&e);
         assert!(amount_7 > 0, "amount must be positive");
-
-        // Fee version check — stale-quote protection.
-        let fee_version: u32 = e.storage().instance().get(&DataKey::FeeVersion).unwrap();
-        assert!(fee_version == min_fee_version, "FeeVersionMismatch");
+        Self::assert_fee_version(&e, min_fee_version);
 
         // Transfer USDC from user.
         let usdc_sac: Address = e.storage().instance().get(&DataKey::UsdcSac).unwrap();
@@ -233,10 +235,7 @@ impl MintRedeemController {
         user.require_auth();
         Self::assert_active(&e);
         assert!(fusd_amount_6 > 0, "amount must be positive");
-
-        // Fee version check.
-        let fee_version: u32 = e.storage().instance().get(&DataKey::FeeVersion).unwrap();
-        assert!(fee_version == min_fee_version, "FeeVersionMismatch");
+        Self::assert_fee_version(&e, min_fee_version);
 
         // Apply redeem fee.
         let redeem_fee_bps: u32 = e.storage().instance().get(&DataKey::RedeemFeeBps).unwrap();
@@ -274,7 +273,7 @@ impl MintRedeemController {
 
     pub fn receive_cctp_settlement(
         e: Env,
-        caller: Address,         // relayer or anyone (permissionless submission)
+        caller: Address,         // must be the admin-appointed Relayer (see set_relayer)
         cctp_message_hash: BytesN<32>,
         source_domain: u32,
         source_sender: BytesN<32>,  // must match allowlisted remote router
@@ -296,7 +295,15 @@ impl MintRedeemController {
         // For the PoC we accept a mock_balance_delta for testability.
         mock_net_received_6: i128,
     ) {
-        caller.require_auth();
+        // Gated to a single admin-appointed Relayer rather than fully permissionless.
+        // This does NOT make `mock_net_received_6` trustworthy on its own — that still
+        // requires real CCTP balance-delta verification before production use (see the
+        // comment above `mock_net_received_6`) — but it removes the "anyone on the
+        // internet can call this and mint themselves fUSD" attack surface that existed
+        // once `local_recipient` let a caller direct the mint to an address of their
+        // choosing. Bound the blast radius to a single, governance-revocable key while
+        // the underlying amount is still a caller-supplied mock.
+        Self::auth_relayer(&e, &caller);
         Self::assert_active(&e);
 
         // TODO production: validate source_sender against ChainState.remote_router
@@ -521,6 +528,11 @@ impl MintRedeemController {
         e.storage().instance().set(&DataKey::FeeVersion, &(v + 1));
     }
 
+    /// Sets the address collected fees are *earmarked* for. Note: no code path currently
+    /// reads this value to actually sweep funds — fees are deliberately left mixed into
+    /// `settled_idle_usdc_6` as retained protocol income (see `deposit_usdc`). This
+    /// setter exists so a future explicit sweep/treasury flow has a configured
+    /// destination ready; it is not itself a fee-collection mechanism yet.
     pub fn set_fee_recipient(e: Env, caller: Address, recipient: Address) {
         Self::auth_admin(&e, &caller);
         e.storage().instance().set(&DataKey::FeeRecipient, &recipient);
@@ -530,6 +542,12 @@ impl MintRedeemController {
         e.storage().instance().get(&DataKey::FeeVersion).unwrap_or(1)
     }
 
+    /// The Stellar USDC SAC this hub moves. Used by AllocationManager at strategy
+    /// registration time to confirm an adapter's configured asset actually matches.
+    pub fn usdc_sac(e: Env) -> Address {
+        e.storage().instance().get(&DataKey::UsdcSac).unwrap()
+    }
+
     // ── Strategy allocation (AllocationManager integration) ──────────────────
 
     pub fn set_allocator(e: Env, caller: Address, allocator: Address) {
@@ -537,14 +555,31 @@ impl MintRedeemController {
         e.storage().instance().set(&DataKey::Allocator, &allocator);
     }
 
+    pub fn set_relayer(e: Env, caller: Address, relayer: Address) {
+        Self::auth_admin(&e, &caller);
+        e.storage().instance().set(&DataKey::Relayer, &relayer);
+    }
+
     /// Send `amount_7` of the hub's idle USDC directly to `to` (a strategy adapter).
     /// Allocator-gated — this is the only way idle USDC custody leaves this contract
     /// other than a user redemption. VaultAccounting's own idle/strategy accounting is
     /// updated by a separate `move_idle_to_strategy` call the Allocator makes directly
     /// against VaultAccounting; this call only moves the real token balance.
+    ///
+    /// Respects the emergency pause, like every other fund-moving entry point, and is
+    /// bounded against VaultAccounting's own tracked idle balance rather than trusting
+    /// the Allocator's requested amount alone — defense in depth against a compromised
+    /// or buggy Allocator draining more than the hub's books say is actually idle.
     pub fn move_idle_to_allocator(e: Env, caller: Address, to: Address, amount_7: i128) {
         Self::auth_allocator(&e, &caller);
+        Self::assert_active(&e);
         assert!(amount_7 > 0, "amount must be positive");
+
+        let amount_6 = amount_7 / 10;
+        let vault: vault_accounting::Client = Self::vault_client(&e);
+        let idle_6 = vault.settled_idle_usdc_6();
+        assert!(amount_6 <= idle_6, "amount exceeds tracked idle USDC");
+
         let usdc_sac: Address = e.storage().instance().get(&DataKey::UsdcSac).unwrap();
         Self::usdc_transfer(&e, &usdc_sac, &e.current_contract_address(), &to, amount_7);
         e.events().publish((symbol_short!("IdleOut"), to), amount_7);
@@ -591,6 +626,11 @@ impl MintRedeemController {
         assert!(!paused, "controller paused");
     }
 
+    fn assert_fee_version(e: &Env, min_fee_version: u32) {
+        let fee_version: u32 = e.storage().instance().get(&DataKey::FeeVersion).unwrap();
+        assert!(fee_version == min_fee_version, "FeeVersionMismatch");
+    }
+
     fn auth_admin(e: &Env, caller: &Address) {
         let admin: Address = e.storage().instance().get(&DataKey::Admin).unwrap();
         assert!(*caller == admin, "not admin");
@@ -601,6 +641,13 @@ impl MintRedeemController {
         let allocator: Address = e.storage().instance().get(&DataKey::Allocator)
             .expect("allocator not set");
         assert!(*caller == allocator, "not allocator");
+        caller.require_auth();
+    }
+
+    fn auth_relayer(e: &Env, caller: &Address) {
+        let relayer: Address = e.storage().instance().get(&DataKey::Relayer)
+            .expect("relayer not set");
+        assert!(*caller == relayer, "not relayer");
         caller.require_auth();
     }
 }
@@ -777,6 +824,7 @@ mod test {
         let h = setup(0, 0);
         let relayer = Address::generate(&h.e);
         let recipient = Address::generate(&h.e);
+        h.controller.set_relayer(&h.admin, &relayer);
 
         h.controller.receive_cctp_settlement(
             &relayer,
@@ -798,6 +846,7 @@ mod test {
     fn receive_cctp_settlement_remote_issues_mint_authorization() {
         let h = setup(0, 0);
         let relayer = Address::generate(&h.e);
+        h.controller.set_relayer(&h.admin, &relayer);
 
         let chain = ChainState {
             chain_id: 6,
@@ -836,6 +885,51 @@ mod test {
         let chain_after = h.vault.chain_state(&6);
         assert_eq!(chain_after.pending_mint_auth_6, 3_000_000, "remote mint authorized, not yet executed");
         assert_eq!(h.fusd.total_supply(), 0, "no local fUSD minted for a remote destination");
+    }
+
+    #[test]
+    #[should_panic(expected = "relayer not set")]
+    fn receive_cctp_settlement_fails_before_relayer_configured() {
+        let h = setup(0, 0);
+        let someone = Address::generate(&h.e);
+        let recipient = Address::generate(&h.e);
+        h.controller.receive_cctp_settlement(
+            &someone,
+            &zero_bytes32(&h.e),
+            &6,
+            &zero_bytes32(&h.e),
+            &0,
+            &zero_bytes32(&h.e),
+            &recipient,
+            &true,
+            &5_000_000,
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "not relayer")]
+    fn receive_cctp_settlement_rejects_non_relayer_caller() {
+        // Regression test: before this gate existed, `receive_cctp_settlement` was fully
+        // permissionless, and combined with the local-mint-recipient fix, any caller
+        // could mint themselves arbitrary fUSD by supplying their own address and a
+        // fabricated mock_net_received_6. This must now be rejected for anyone other
+        // than the configured Relayer.
+        let h = setup(0, 0);
+        let relayer = Address::generate(&h.e);
+        h.controller.set_relayer(&h.admin, &relayer);
+
+        let attacker = Address::generate(&h.e);
+        h.controller.receive_cctp_settlement(
+            &attacker,
+            &zero_bytes32(&h.e),
+            &6,
+            &zero_bytes32(&h.e),
+            &0,
+            &zero_bytes32(&h.e),
+            &attacker,
+            &true,
+            &1_000_000_000,
+        );
     }
 
     // ── fee governance ─────────────────────────────────────────────────────────
@@ -941,5 +1035,37 @@ mod test {
         let h = setup(0, 0);
         let someone = Address::generate(&h.e);
         h.controller.move_idle_to_allocator(&someone, &someone, &1_000_000);
+    }
+
+    #[test]
+    #[should_panic(expected = "controller paused")]
+    fn move_idle_to_allocator_respects_pause() {
+        // Regression test: this fund-egress path previously skipped the pause check
+        // every other mutating entry point enforces, so an emergency pause did not
+        // actually stop the Allocator from draining idle USDC.
+        let h = setup(0, 0);
+        let user = Address::generate(&h.e);
+        h.usdc_admin.mint(&user, &1_000_000_000);
+        h.controller.deposit_usdc(&user, &1_000_000_000, &0, &1);
+
+        let allocator = Address::generate(&h.e);
+        h.controller.set_allocator(&h.admin, &allocator);
+        h.controller.pause(&h.admin);
+        h.controller.move_idle_to_allocator(&allocator, &allocator, &400_000_000);
+    }
+
+    #[test]
+    #[should_panic(expected = "amount exceeds tracked idle USDC")]
+    fn move_idle_to_allocator_respects_tracked_idle_bound() {
+        let h = setup(0, 0);
+        let user = Address::generate(&h.e);
+        h.usdc_admin.mint(&user, &1_000_000_000); // 100 USDC deposited
+        h.controller.deposit_usdc(&user, &1_000_000_000, &0, &1);
+
+        let allocator = Address::generate(&h.e);
+        h.controller.set_allocator(&h.admin, &allocator);
+        // Only 100 USDC is tracked as idle — asking for 110 must be rejected even
+        // though the Allocator role itself is legitimate.
+        h.controller.move_idle_to_allocator(&allocator, &allocator, &1_100_000_000);
     }
 }

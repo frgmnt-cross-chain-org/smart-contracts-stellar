@@ -62,6 +62,14 @@
                     },
                     {
                       "key": {
+                        "symbol": "deprecation_acknowledged"
+                      },
+                      "val": {
+                        "bool": true
+                      }
+                    },
+                    {
+                      "key": {
                         "symbol": "max_protocol_exposure_6"
                       },
                       "val": {
@@ -507,6 +515,14 @@
                               },
                               "val": {
                                 "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
+                              }
+                            },
+                            {
+                              "key": {
+                                "symbol": "deprecation_acknowledged"
+                              },
+                              "val": {
+                                "bool": true
                               }
                             },
                             {
@@ -1111,6 +1127,14 @@
                       },
                       "val": {
                         "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
+                      }
+                    },
+                    {
+                      "key": {
+                        "symbol": "deprecation_acknowledged"
+                      },
+                      "val": {
+                        "bool": true
                       }
                     },
                     {
@@ -1787,7 +1811,7 @@
             "data": {
               "vec": [
                 {
-                  "string": "caught panic 'not admin' from contract function 'Symbol(obj#441)'"
+                  "string": "caught panic 'not admin' from contract function 'Symbol(obj#447)'"
                 },
                 {
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"

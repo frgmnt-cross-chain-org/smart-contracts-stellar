@@ -54,17 +54,21 @@ docs/
 cargo test --workspace
 ```
 
-All seven Soroban crates include unit tests (**117 total**) covering:
+All seven Soroban crates include unit tests (**129 total**) covering:
 - `fusd-token`: mint/burn, non-controller rejection, pause guard
 - `vault-accounting`: solvency invariant, CCTP replay protection, collateral-release guard,
   fast-credit finalization (no double-mint), stuck-ack recovery, strategy allocation
-  accounting (debt ceilings, yield/loss reporting never touching mint allowance)
+  accounting (debt ceilings, yield/loss reporting never touching mint allowance, a
+  per-epoch cap on reported gains, and aggregate-vs-per-strategy value consistency across
+  multiple strategies)
 - `mint-redeem-controller`: fee CRIT-1 (no fee_recipient in manager call), decimal dust,
   daily redeem limit rollover, gross-vs-net deposit fee accounting, real SEP-41 token
-  transfers via a live Stellar Asset Contract test double
+  transfers via a live Stellar Asset Contract test double, the Relayer gate on CCTP
+  settlement submission, and pause/idle-bound enforcement on Allocator fund egress
 - `allocation-manager`: role-gated allocate/deallocate/emergency-exit orchestration across
   VaultAccounting, MintRedeemController, and a strategy adapter, end-to-end with real
-  token movement
+  token movement, including that `emergency_exit` relays the real admin caller (not this
+  contract's own address) into the adapter's own Admin-gated check
 - `xycloans-adapter`: deposit/withdraw against a mock xycLoans pool with real SAC token
   transfers, matured-fee harvesting semantics, balance-delta-based slippage protection,
   exposure caps, pause semantics
@@ -73,7 +77,8 @@ All seven Soroban crates include unit tests (**117 total**) covering:
   rounding direction (never favors the withdrawer), exposure caps, pause semantics
 - `blend-adapter`: kept passing (not actively used — see below) — deposit/withdraw
   against a mock Blend pool, V1-vs-V2 valuation behavior, balance-delta-based slippage
-  protection, exposure caps, pause semantics
+  protection, exposure caps, pause semantics, and a required explicit
+  `deprecation_acknowledged` flag at initialization
 
 ### Strategy allocation layer
 
@@ -137,11 +142,17 @@ forge test -vvv
 
 ## Key security properties demonstrated
 
-### 1. Balance-delta CCTP settlement (CC-CRIT-1)
-`receive_cctp_settlement` in `mint-redeem-controller` does **not** accept `amount_6` as a
-relayer-supplied parameter. The credited amount is computed as `usdc_balance_after -
-usdc_balance_before` inside the same transaction. (PoC uses `mock_net_received_6` for
-test expressibility, with a comment noting this must be the delta in production.)
+### 1. CCTP settlement submission is Relayer-gated (CC-CRIT-1, partial)
+`receive_cctp_settlement` in `mint-redeem-controller` still accepts `mock_net_received_6`
+as a caller-supplied parameter in this PoC — real balance-delta computation
+(`usdc_balance_after - usdc_balance_before` inside the same transaction, replacing the
+Circle CCTP `receive_message` call this repo does not vendor) is not yet implemented, and
+the function's own comments say so. What **is** enforced now: the function is gated to a
+single admin-appointed `Relayer` address (`set_relayer`), not fully permissionless —
+closing the "anyone can call this and mint themselves fUSD" path that existed once
+`local_recipient` let a caller direct the mint to an address of their choosing. The mock
+amount itself remains untrustworthy until real CCTP verification lands; do not treat this
+function as production-ready before that work is done.
 
 ### 2. Mint auth replay protection
 `vault-accounting` stores every `mint_auth_id` in Soroban Persistent storage with a
@@ -170,6 +181,22 @@ when Axelar permanently fails to deliver the `RemoteMintExecuted` ack. Requires
 Every state mutation in `vault-accounting` calls `check_invariant_gs`. If
 `total_liabilities_6 > settled_idle_usdc_6 + settled_spoke_escrow_usdc_6 + total_strategy_value_6
  - pending_outbound_usdc_6 - required_reserve_6`, the transaction panics.
+
+### 8. Per-epoch yield rate limit (strategy value reporting)
+`report_strategy_value` bounds every *gain* against `max_yield_per_epoch_6` (accumulated
+in `yield_credited_this_epoch_6`, resetting when `epoch_length_ledgers` elapses) — a
+circuit breaker against a compromised or buggy Allocator key instantly fabricating
+backing in one call. Losses are never rate-limited: bad news must always be reflected
+immediately and in full for the solvency invariant to mean anything.
+
+### 9. `emergency_exit` caller relay (AllocationManager)
+`AllocationManager.emergency_exit` relays the real admin `caller` into the adapter's own
+`emergency_exit`, not this contract's own address. Every adapter gates `emergency_exit` on
+its own separately-configured `Admin` (governance), distinct from `Allocator` (=
+AllocationManager's address) — relaying the wrong identity would make the entire
+governance emergency-exit path silently unreachable in production while still passing a
+test whose mock happened to conflate the two roles. `min_out_6` is now a real
+caller-supplied parameter here too, rather than hardcoded to `0`.
 
 ---
 

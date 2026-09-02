@@ -233,6 +233,13 @@ impl VaultAccounting {
         e.storage().instance().get(&DataKey::GlobalState).unwrap()
     }
 
+    /// Single-field read of `settled_idle_usdc_6`, so callers that only need this one
+    /// number (e.g. MintRedeemController bounding `move_idle_to_allocator`) don't need
+    /// to mirror the entire `GlobalState` struct just to decode one field.
+    pub fn settled_idle_usdc_6(e: Env) -> i128 {
+        Self::global_state(e).settled_idle_usdc_6
+    }
+
     // ── Deposit paths (called by MintRedeemController) ────────────────────────
 
     /// Record a Stellar-local USDC deposit. Increases idle collateral and mint_allowance.
@@ -673,7 +680,7 @@ impl VaultAccounting {
             active: true,
             last_report_ledger: e.ledger().sequence(),
         };
-        e.storage().persistent().set(&DataKey::StrategyState(strategy_id.clone()), &state);
+        Self::save_strategy(&e, &strategy_id, &state);
         e.events().publish((symbol_short!("StratReg"),), strategy_id);
     }
 
@@ -686,7 +693,7 @@ impl VaultAccounting {
         Self::auth_admin(&e, &caller);
         let mut state = Self::load_strategy(&e, &strategy_id);
         state.active = active;
-        e.storage().persistent().set(&DataKey::StrategyState(strategy_id), &state);
+        Self::save_strategy(&e, &strategy_id, &state);
     }
 
     /// Move idle Stellar USDC into a strategy. Called by AllocationManager immediately
@@ -702,8 +709,10 @@ impl VaultAccounting {
         let new_deployed = state.deployed_value_6.checked_add(amount_6).expect("overflow");
         assert!(new_deployed <= state.debt_ceiling_6, "debt ceiling exceeded");
         state.deployed_value_6 = new_deployed;
-        state.last_report_ledger = e.ledger().sequence();
-        e.storage().persistent().set(&DataKey::StrategyState(strategy_id.clone()), &state);
+        // last_report_ledger is deliberately NOT touched here — it tracks the last
+        // genuine *valuation* (report_strategy_value), not the last fund movement. A
+        // deposit/withdrawal is not a re-verification of the position's real value.
+        Self::save_strategy(&e, &strategy_id, &state);
 
         let mut gs: GlobalState = Self::load_gs(&e);
         assert!(gs.settled_idle_usdc_6 >= amount_6, "insufficient idle USDC");
@@ -728,13 +737,22 @@ impl VaultAccounting {
         // rather than underflow — any excess is realized gain being pulled to idle.
         // `saturating_sub` on a *signed* i128 only guards overflow at i128::MIN, it does
         // not clamp at 0 — that needs an explicit `.max(0)`.
-        state.deployed_value_6 = (state.deployed_value_6 - amount_6).max(0);
-        state.last_report_ledger = e.ledger().sequence();
-        e.storage().persistent().set(&DataKey::StrategyState(strategy_id.clone()), &state);
+        //
+        // The GLOBAL total_strategy_value_6 must decrease by exactly the amount THIS
+        // strategy's own tracked value actually dropped by (`strategy_decrease`), not by
+        // the full `amount_6` — otherwise, whenever a withdrawal exceeds this one
+        // strategy's stale tracked value (the clamp-at-0 case), the aggregate would be
+        // over-decremented relative to the sum of per-strategy values, permanently
+        // understating real backing in a multi-strategy deployment even though nothing
+        // is actually missing.
+        let deployed_before = state.deployed_value_6;
+        let strategy_decrease = amount_6.min(deployed_before).max(0);
+        state.deployed_value_6 = deployed_before - strategy_decrease;
+        Self::save_strategy(&e, &strategy_id, &state);
 
         let mut gs: GlobalState = Self::load_gs(&e);
         gs.settled_idle_usdc_6 = gs.settled_idle_usdc_6.checked_add(amount_6).expect("overflow");
-        gs.total_strategy_value_6 = (gs.total_strategy_value_6 - amount_6).max(0);
+        gs.total_strategy_value_6 = (gs.total_strategy_value_6 - strategy_decrease).max(0);
         e.storage().instance().set(&DataKey::GlobalState, &gs);
 
         Self::assert_invariant_internal(&e, &gs);
@@ -745,6 +763,17 @@ impl VaultAccounting {
     /// (e.g. after interest accrual on the underlying lending pool). Must never
     /// be used to fabricate mint_allowance_6 — it only ever adjusts
     /// total_strategy_value_6, which backs liabilities but never mints new ones.
+    ///
+    /// Deliberately NOT bounded by `debt_ceiling_6`: the ceiling caps how much new
+    /// principal `move_idle_to_strategy` may deploy, not how large a position's value
+    /// may grow from real, externally-verified yield. A strategy that started at its
+    /// ceiling and legitimately earned interest is expected to report a value above it.
+    ///
+    /// A *gain* (new_value_6 > old value) IS bounded by `max_yield_per_epoch_6` — an
+    /// upper-bound circuit breaker against a compromised or buggy Allocator key
+    /// instantly inflating reported backing in one call. A *loss* is never rate-limited:
+    /// bad news must always be reflected immediately, in full, for the solvency
+    /// invariant to mean anything.
     pub fn report_strategy_value(e: Env, caller: Address, strategy_id: BytesN<32>, new_value_6: i128) {
         Self::auth_allocator(&e, &caller);
         assert!(new_value_6 >= 0, "value must be non-negative");
@@ -753,9 +782,22 @@ impl VaultAccounting {
         let old_value = state.deployed_value_6;
         state.deployed_value_6 = new_value_6;
         state.last_report_ledger = e.ledger().sequence();
-        e.storage().persistent().set(&DataKey::StrategyState(strategy_id.clone()), &state);
+        Self::save_strategy(&e, &strategy_id, &state);
 
         let mut gs: GlobalState = Self::load_gs(&e);
+
+        if new_value_6 > old_value {
+            let gain_6 = new_value_6 - old_value;
+            let current_ledger = e.ledger().sequence();
+            if current_ledger.saturating_sub(gs.epoch_start_ledger) >= gs.epoch_length_ledgers {
+                gs.epoch_start_ledger = current_ledger;
+                gs.yield_credited_this_epoch_6 = 0;
+            }
+            let new_epoch_total = gs.yield_credited_this_epoch_6.checked_add(gain_6).expect("overflow");
+            assert!(new_epoch_total <= gs.max_yield_per_epoch_6, "yield exceeds per-epoch cap");
+            gs.yield_credited_this_epoch_6 = new_epoch_total;
+        }
+
         gs.total_strategy_value_6 = gs.total_strategy_value_6
             .checked_sub(old_value)
             .and_then(|v| v.checked_add(new_value_6))
@@ -769,6 +811,18 @@ impl VaultAccounting {
     fn load_strategy(e: &Env, strategy_id: &BytesN<32>) -> StrategyState {
         e.storage().persistent().get(&DataKey::StrategyState(strategy_id.clone()))
             .expect("strategy not registered")
+    }
+
+    /// Writes a `StrategyState` and extends its TTL to the same 5-year floor used for
+    /// every other long-lived Persistent record in this contract (consumed CCTP/GMP
+    /// hashes, MintAuth records). A registered strategy can otherwise go untouched
+    /// (paused, or simply not allocated/deallocated/report_value'd) for long enough to
+    /// be archived, turning every future call against it into a hard failure until
+    /// someone notices and restores the ledger entry.
+    fn save_strategy(e: &Env, strategy_id: &BytesN<32>, state: &StrategyState) {
+        let key = DataKey::StrategyState(strategy_id.clone());
+        e.storage().persistent().set(&key, state);
+        e.storage().persistent().extend_ttl(&key, 13_140_000, 13_140_000);
     }
 
     fn auth_allocator(e: &Env, caller: &Address) {
@@ -1360,6 +1414,137 @@ mod test {
         client.report_strategy_value(&allocator, &sid, &1_800_000);
         let gs = client.global_state();
         assert_eq!(gs.total_strategy_value_6, 1_800_000);
+    }
+
+    #[test]
+    #[should_panic(expected = "yield exceeds per-epoch cap")]
+    fn report_strategy_value_rejects_gain_over_epoch_cap() {
+        // Default max_yield_per_epoch_6 from initialize() is 1_000_000_000 (1,000 USDC).
+        let (e, admin, controller, allocator, client) = setup_with_allocator();
+        client.record_local_deposit(&controller, &10_000_000_000);
+
+        let sid = strategy_id(&e, 8);
+        let adapter = Address::generate(&e);
+        client.register_strategy(&admin, &sid, &adapter, &10_000_000_000);
+        client.move_idle_to_strategy(&allocator, &sid, &1_000_000);
+
+        // A single report claiming 1,001 USDC of gain in one call must be rejected —
+        // otherwise a compromised/buggy Allocator key could instantly fabricate
+        // arbitrary backing with no rate limit at all.
+        client.report_strategy_value(&allocator, &sid, &1_001_001_000);
+    }
+
+    #[test]
+    fn report_strategy_value_epoch_cap_tracks_cumulative_gain() {
+        let (e, admin, controller, allocator, client) = setup_with_allocator();
+        client.record_local_deposit(&controller, &10_000_000_000);
+
+        let sid = strategy_id(&e, 9);
+        let adapter = Address::generate(&e);
+        client.register_strategy(&admin, &sid, &adapter, &10_000_000_000);
+        client.move_idle_to_strategy(&allocator, &sid, &1_000_000);
+
+        // A 600 USDC gain, well under the 1,000 USDC cap, is accepted and tracked.
+        client.report_strategy_value(&allocator, &sid, &601_000_000);
+        let gs = client.global_state();
+        assert_eq!(gs.yield_credited_this_epoch_6, 600_000_000);
+    }
+
+    #[test]
+    #[should_panic(expected = "yield exceeds per-epoch cap")]
+    fn report_strategy_value_epoch_cap_is_cumulative_within_the_epoch() {
+        let (e, admin, controller, allocator, client) = setup_with_allocator();
+        client.record_local_deposit(&controller, &10_000_000_000);
+
+        let sid = strategy_id(&e, 9);
+        let adapter = Address::generate(&e);
+        client.register_strategy(&admin, &sid, &adapter, &10_000_000_000);
+        client.move_idle_to_strategy(&allocator, &sid, &1_000_000);
+
+        // Two 600 USDC gains in the same epoch sum to 1,200 USDC > the 1,000 USDC cap —
+        // the second call alone is under the cap, but the cumulative total is not.
+        client.report_strategy_value(&allocator, &sid, &601_000_000);
+        client.report_strategy_value(&allocator, &sid, &1_201_000_000);
+    }
+
+    #[test]
+    fn report_strategy_value_epoch_cap_resets_after_epoch_rolls_over() {
+        // Build env with large TTL BEFORE registering the contract so all storage
+        // entries survive the 69,121-ledger advance that crosses into a new epoch —
+        // same technique as force_reconcile_after_timeout.
+        let e = Env::default();
+        e.mock_all_auths();
+        e.ledger().with_mut(|l| {
+            l.min_temp_entry_ttl = 200_000;
+            l.min_persistent_entry_ttl = 200_000;
+            l.max_entry_ttl = 300_000;
+        });
+        let admin = Address::generate(&e);
+        let controller = Address::generate(&e);
+        let id = e.register_contract(None, VaultAccounting);
+        let client = VaultAccountingClient::new(&e, &id);
+        client.initialize(&admin, &controller, &27, &1000);
+        let allocator = Address::generate(&e);
+        client.set_allocator(&admin, &allocator);
+
+        client.record_local_deposit(&controller, &10_000_000_000);
+
+        let sid = strategy_id(&e, 10);
+        let adapter = Address::generate(&e);
+        client.register_strategy(&admin, &sid, &adapter, &10_000_000_000);
+        client.move_idle_to_strategy(&allocator, &sid, &1_000_000);
+
+        client.report_strategy_value(&allocator, &sid, &601_000_000); // 600 USDC gain
+        assert_eq!(client.global_state().yield_credited_this_epoch_6, 600_000_000);
+
+        // Advance past epoch_length_ledgers (69_120, set in initialize()).
+        e.ledger().with_mut(|l| { l.sequence_number += 69_121; });
+
+        // A further 600 USDC gain would have failed within the same epoch, but the
+        // epoch has rolled over so the counter resets.
+        client.report_strategy_value(&allocator, &sid, &1_201_000_000);
+        let gs = client.global_state();
+        assert_eq!(gs.yield_credited_this_epoch_6, 600_000_000, "counter reset to only this epoch's gain");
+        assert_eq!(gs.total_strategy_value_6, 1_201_000_000);
+    }
+
+    #[test]
+    fn move_strategy_to_idle_keeps_aggregate_consistent_with_sum_of_strategies() {
+        // Regression test for a real divergence bug: when a withdrawal from ONE
+        // strategy exceeds that strategy's own tracked value (clamped at 0), the
+        // aggregate total_strategy_value_6 must decrease by exactly the same clamped
+        // amount as that strategy's own value did — not by the full requested amount —
+        // or a multi-strategy deployment silently understates real backing forever.
+        let (e, admin, controller, allocator, client) = setup_with_allocator();
+        client.record_local_deposit(&controller, &20_000_000);
+
+        let sid_a = strategy_id(&e, 20);
+        let sid_b = strategy_id(&e, 21);
+        let adapter_a = Address::generate(&e);
+        let adapter_b = Address::generate(&e);
+        client.register_strategy(&admin, &sid_a, &adapter_a, &10_000_000);
+        client.register_strategy(&admin, &sid_b, &adapter_b, &10_000_000);
+
+        client.move_idle_to_strategy(&allocator, &sid_a, &2_000_000);
+        client.move_idle_to_strategy(&allocator, &sid_b, &2_000_000);
+        assert_eq!(client.global_state().total_strategy_value_6, 4_000_000);
+
+        // Withdraw 2.5M from A — 500k more than A's own tracked 2M (realized yield that
+        // was never separately reported). A's own value clamps to 0.
+        client.move_strategy_to_idle(&allocator, &sid_a, &2_500_000);
+
+        let strat_a = client.strategy_state(&sid_a);
+        let strat_b = client.strategy_state(&sid_b);
+        assert_eq!(strat_a.deployed_value_6, 0);
+        assert_eq!(strat_b.deployed_value_6, 2_000_000, "B untouched");
+
+        let gs = client.global_state();
+        assert_eq!(
+            gs.total_strategy_value_6,
+            strat_a.deployed_value_6 + strat_b.deployed_value_6,
+            "aggregate must equal the true sum of per-strategy values"
+        );
+        assert_eq!(gs.total_strategy_value_6, 2_000_000, "only A's real 2M tracked value left the aggregate, not the requested 2.5M");
     }
 
     #[test]

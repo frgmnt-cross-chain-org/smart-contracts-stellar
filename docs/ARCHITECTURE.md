@@ -702,7 +702,7 @@ fn check_invariant_gs(gs: &GlobalState) -> bool {
 | Guardian | Cannot mint, raise caps, upgrade, or add chains — even during incident |
 | Manager | Cannot set fee_recipient, add strategies, mint, or alter liabilities |
 | Trader | Cannot register routes/guards, change caps/reserves, or create mint allowance |
-| CCTP Relayer | Cannot alter amount or recipient of the CCTP message |
+| CCTP Relayer | Cannot alter amount or recipient of the CCTP message. Implemented today as a single admin-appointed address (`MintRedeemController.set_relayer`/`receive_cctp_settlement`) — this bounds *who* can submit a settlement, but the credited amount is still a caller-supplied PoC mock (`mock_net_received_6`) pending real Stellar CCTP `receive_message` integration and balance-delta computation; do not treat the amount as trustworthy in production until that lands |
 | Axelar Relayer | Gateway verification is the security boundary; relayer is operational only |
 
 ---

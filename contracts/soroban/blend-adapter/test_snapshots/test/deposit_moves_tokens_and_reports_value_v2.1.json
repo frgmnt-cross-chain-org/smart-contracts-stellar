@@ -62,6 +62,14 @@
                     },
                     {
                       "key": {
+                        "symbol": "deprecation_acknowledged"
+                      },
+                      "val": {
+                        "bool": true
+                      }
+                    },
+                    {
+                      "key": {
                         "symbol": "max_protocol_exposure_6"
                       },
                       "val": {
@@ -510,6 +518,14 @@
                               },
                               "val": {
                                 "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
+                              }
+                            },
+                            {
+                              "key": {
+                                "symbol": "deprecation_acknowledged"
+                              },
+                              "val": {
+                                "bool": true
                               }
                             },
                             {
@@ -1114,6 +1130,14 @@
                       },
                       "val": {
                         "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
+                      }
+                    },
+                    {
+                      "key": {
+                        "symbol": "deprecation_acknowledged"
+                      },
+                      "val": {
+                        "bool": true
                       }
                     },
                     {

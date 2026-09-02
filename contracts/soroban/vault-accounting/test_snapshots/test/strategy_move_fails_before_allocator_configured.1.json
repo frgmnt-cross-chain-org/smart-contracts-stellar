@@ -296,7 +296,7 @@
             },
             "ext": "v0"
           },
-          4095
+          6311999
         ]
       ],
       [
@@ -885,7 +885,7 @@
             "data": {
               "vec": [
                 {
-                  "string": "caught panic 'allocator not set' from contract function 'Symbol(obj#303)'"
+                  "string": "caught panic 'allocator not set' from contract function 'Symbol(obj#307)'"
                 },
                 {
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAK3IM"

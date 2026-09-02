@@ -47,6 +47,15 @@ pub struct BlendConfig {
     pub max_protocol_exposure_6: i128,
     /// When true, `deposit` is blocked. Withdrawals always remain available.
     pub paused: bool,
+    /// Must be explicitly set to `true` to initialize this adapter at all. This is not
+    /// a functional flag — it's a deliberate deployment speed bump: this crate is
+    /// retained only so a future, independently audited Blend V3 can be evaluated
+    /// without a rewrite (see docs/CROSS_CHAIN_FUSD_TECHNICAL_SPEC.md §8 status note).
+    /// Blend V2's backstop was drained in the August 2026 Comet AMM exploit and cannot
+    /// be repaired; nothing should force this field to `true` without a governance
+    /// decision made with that context in hand, made explicit in the deployment
+    /// transaction itself rather than assumed by a default.
+    pub deprecation_acknowledged: bool,
 }
 
 #[contracttype]
@@ -83,6 +92,14 @@ impl BlendAdapter {
         );
         assert!(config.asset_decimals >= 6, "asset_decimals must be >= 6");
         assert!(config.max_protocol_exposure_6 >= 0, "max exposure must be non-negative");
+        assert!(
+            config.deprecation_acknowledged,
+            "BlendAdapter is retained but not recommended for production: Blend V2's \
+             backstop cannot be repaired after the August 2026 Comet AMM exploit. Set \
+             deprecation_acknowledged = true only after an explicit \
+             governance decision to deploy against a specific, independently evaluated \
+             Blend pool (e.g. a future audited V3)."
+        );
 
         e.storage().instance().set(&DataKey::Admin, &admin);
         e.storage().instance().set(&DataKey::Allocator, &allocator);
@@ -489,6 +506,7 @@ mod test {
             asset_decimals: 7,
             max_protocol_exposure_6: 100_000_000,
             paused: false,
+            deprecation_acknowledged: true,
         };
         adapter.initialize(&admin, &allocator, &strategy_id, &config);
 
@@ -518,8 +536,33 @@ mod test {
             asset_decimals: 7,
             max_protocol_exposure_6: 100,
             paused: false,
+            deprecation_acknowledged: true,
         };
         let strategy_id = BytesN::from_array(&e, &[1u8; 32]);
+        adapter.initialize(&admin, &allocator, &strategy_id, &config);
+    }
+
+    #[test]
+    #[should_panic(expected = "not recommended for production")]
+    fn initialize_requires_explicit_deprecation_acknowledgment() {
+        let e = Env::default();
+        e.mock_all_auths();
+        let admin = Address::generate(&e);
+        let allocator = Address::generate(&e);
+        let pool = Address::generate(&e);
+        let token = Address::generate(&e);
+        let adapter_id = e.register_contract(None, BlendAdapter);
+        let adapter = BlendAdapterClient::new(&e, &adapter_id);
+        let config = BlendConfig {
+            blend_pool: pool,
+            usdc_token: token,
+            pool_version: 2,
+            asset_decimals: 7,
+            max_protocol_exposure_6: 100,
+            paused: false,
+            deprecation_acknowledged: false,
+        };
+        let strategy_id = BytesN::from_array(&e, &[2u8; 32]);
         adapter.initialize(&admin, &allocator, &strategy_id, &config);
     }
 

@@ -1,6 +1,6 @@
 {
   "generators": {
-    "address": 5,
+    "address": 6,
     "nonce": 0
   },
   "auth": [
@@ -69,32 +69,7 @@
                 {
                   "i128": {
                     "hi": 0,
-                    "lo": 10000000
-                  }
-                }
-              ]
-            }
-          },
-          "sub_invocations": []
-        }
-      ]
-    ],
-    [
-      [
-        "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
-        {
-          "function": {
-            "contract_fn": {
-              "contract_address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M",
-              "function_name": "mint_liability_from_settled_usdc",
-              "args": [
-                {
-                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
-                },
-                {
-                  "i128": {
-                    "hi": 0,
-                    "lo": 1000000
+                    "lo": 20000000
                   }
                 }
               ]
@@ -117,10 +92,41 @@
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM"
                 },
                 {
-                  "bytes": "0303030303030303030303030303030303030303030303030303030303030303"
+                  "bytes": "1414141414141414141414141414141414141414141414141414141414141414"
                 },
                 {
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAK3IM"
+                },
+                {
+                  "i128": {
+                    "hi": 0,
+                    "lo": 10000000
+                  }
+                }
+              ]
+            }
+          },
+          "sub_invocations": []
+        }
+      ]
+    ],
+    [
+      [
+        "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
+        {
+          "function": {
+            "contract_fn": {
+              "contract_address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M",
+              "function_name": "register_strategy",
+              "args": [
+                {
+                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM"
+                },
+                {
+                  "bytes": "1515151515151515151515151515151515151515151515151515151515151515"
+                },
+                {
+                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMDR4"
                 },
                 {
                   "i128": {
@@ -148,12 +154,40 @@
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
                 },
                 {
-                  "bytes": "0303030303030303030303030303030303030303030303030303030303030303"
+                  "bytes": "1414141414141414141414141414141414141414141414141414141414141414"
                 },
                 {
                   "i128": {
                     "hi": 0,
-                    "lo": 3000000
+                    "lo": 2000000
+                  }
+                }
+              ]
+            }
+          },
+          "sub_invocations": []
+        }
+      ]
+    ],
+    [
+      [
+        "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4",
+        {
+          "function": {
+            "contract_fn": {
+              "contract_address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M",
+              "function_name": "move_idle_to_strategy",
+              "args": [
+                {
+                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
+                },
+                {
+                  "bytes": "1515151515151515151515151515151515151515151515151515151515151515"
+                },
+                {
+                  "i128": {
+                    "hi": 0,
+                    "lo": 2000000
                   }
                 }
               ]
@@ -171,18 +205,18 @@
           "function": {
             "contract_fn": {
               "contract_address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M",
-              "function_name": "report_strategy_value",
+              "function_name": "move_strategy_to_idle",
               "args": [
                 {
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
                 },
                 {
-                  "bytes": "0303030303030303030303030303030303030303030303030303030303030303"
+                  "bytes": "1414141414141414141414141414141414141414141414141414141414141414"
                 },
                 {
                   "i128": {
                     "hi": 0,
-                    "lo": 3300000
+                    "lo": 2500000
                   }
                 }
               ]
@@ -192,6 +226,7 @@
         }
       ]
     ],
+    [],
     [],
     []
   ],
@@ -277,6 +312,39 @@
             "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
             "key": {
               "ledger_key_nonce": {
+                "nonce": 4837995959683129791
+              }
+            },
+            "durability": "temporary"
+          }
+        },
+        [
+          {
+            "last_modified_ledger_seq": 0,
+            "data": {
+              "contract_data": {
+                "ext": "v0",
+                "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
+                "key": {
+                  "ledger_key_nonce": {
+                    "nonce": 4837995959683129791
+                  }
+                },
+                "durability": "temporary",
+                "val": "void"
+              }
+            },
+            "ext": "v0"
+          },
+          6311999
+        ]
+      ],
+      [
+        {
+          "contract_data": {
+            "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
+            "key": {
+              "ledger_key_nonce": {
                 "nonce": 5541220902715666415
               }
             },
@@ -340,39 +408,6 @@
       [
         {
           "contract_data": {
-            "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
-            "key": {
-              "ledger_key_nonce": {
-                "nonce": 4837995959683129791
-              }
-            },
-            "durability": "temporary"
-          }
-        },
-        [
-          {
-            "last_modified_ledger_seq": 0,
-            "data": {
-              "contract_data": {
-                "ext": "v0",
-                "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
-                "key": {
-                  "ledger_key_nonce": {
-                    "nonce": 4837995959683129791
-                  }
-                },
-                "durability": "temporary",
-                "val": "void"
-              }
-            },
-            "ext": "v0"
-          },
-          6311999
-        ]
-      ],
-      [
-        {
-          "contract_data": {
             "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M",
             "key": {
               "vec": [
@@ -380,7 +415,7 @@
                   "symbol": "StrategyState"
                 },
                 {
-                  "bytes": "0303030303030303030303030303030303030303030303030303030303030303"
+                  "bytes": "1414141414141414141414141414141414141414141414141414141414141414"
                 }
               ]
             },
@@ -400,7 +435,7 @@
                       "symbol": "StrategyState"
                     },
                     {
-                      "bytes": "0303030303030303030303030303030303030303030303030303030303030303"
+                      "bytes": "1414141414141414141414141414141414141414141414141414141414141414"
                     }
                   ]
                 },
@@ -441,7 +476,7 @@
                       "val": {
                         "i128": {
                           "hi": 0,
-                          "lo": 3300000
+                          "lo": 0
                         }
                       }
                     },
@@ -458,7 +493,107 @@
                         "symbol": "strategy_id"
                       },
                       "val": {
-                        "bytes": "0303030303030303030303030303030303030303030303030303030303030303"
+                        "bytes": "1414141414141414141414141414141414141414141414141414141414141414"
+                      }
+                    }
+                  ]
+                }
+              }
+            },
+            "ext": "v0"
+          },
+          6311999
+        ]
+      ],
+      [
+        {
+          "contract_data": {
+            "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M",
+            "key": {
+              "vec": [
+                {
+                  "symbol": "StrategyState"
+                },
+                {
+                  "bytes": "1515151515151515151515151515151515151515151515151515151515151515"
+                }
+              ]
+            },
+            "durability": "persistent"
+          }
+        },
+        [
+          {
+            "last_modified_ledger_seq": 0,
+            "data": {
+              "contract_data": {
+                "ext": "v0",
+                "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M",
+                "key": {
+                  "vec": [
+                    {
+                      "symbol": "StrategyState"
+                    },
+                    {
+                      "bytes": "1515151515151515151515151515151515151515151515151515151515151515"
+                    }
+                  ]
+                },
+                "durability": "persistent",
+                "val": {
+                  "map": [
+                    {
+                      "key": {
+                        "symbol": "active"
+                      },
+                      "val": {
+                        "bool": true
+                      }
+                    },
+                    {
+                      "key": {
+                        "symbol": "adapter"
+                      },
+                      "val": {
+                        "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMDR4"
+                      }
+                    },
+                    {
+                      "key": {
+                        "symbol": "debt_ceiling_6"
+                      },
+                      "val": {
+                        "i128": {
+                          "hi": 0,
+                          "lo": 10000000
+                        }
+                      }
+                    },
+                    {
+                      "key": {
+                        "symbol": "deployed_value_6"
+                      },
+                      "val": {
+                        "i128": {
+                          "hi": 0,
+                          "lo": 2000000
+                        }
+                      }
+                    },
+                    {
+                      "key": {
+                        "symbol": "last_report_ledger"
+                      },
+                      "val": {
+                        "u32": 0
+                      }
+                    },
+                    {
+                      "key": {
+                        "symbol": "strategy_id"
+                      },
+                      "val": {
+                        "bytes": "1515151515151515151515151515151515151515151515151515151515151515"
                       }
                     }
                   ]
@@ -630,7 +765,7 @@
                               "val": {
                                 "i128": {
                                   "hi": 0,
-                                  "lo": 9000000
+                                  "lo": 20000000
                                 }
                               }
                             },
@@ -706,7 +841,7 @@
                               "val": {
                                 "i128": {
                                   "hi": 0,
-                                  "lo": 7000000
+                                  "lo": 18500000
                                 }
                               }
                             },
@@ -728,7 +863,7 @@
                               "val": {
                                 "i128": {
                                   "hi": 0,
-                                  "lo": 1000000
+                                  "lo": 0
                                 }
                               }
                             },
@@ -739,7 +874,7 @@
                               "val": {
                                 "i128": {
                                   "hi": 0,
-                                  "lo": 3300000
+                                  "lo": 2000000
                                 }
                               }
                             },
@@ -750,7 +885,7 @@
                               "val": {
                                 "i128": {
                                   "hi": 0,
-                                  "lo": 300000
+                                  "lo": 0
                                 }
                               }
                             }
@@ -789,6 +924,39 @@
                 "key": {
                   "ledger_key_nonce": {
                     "nonce": 4270020994084947596
+                  }
+                },
+                "durability": "temporary",
+                "val": "void"
+              }
+            },
+            "ext": "v0"
+          },
+          6311999
+        ]
+      ],
+      [
+        {
+          "contract_data": {
+            "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4",
+            "key": {
+              "ledger_key_nonce": {
+                "nonce": 6277191135259896685
+              }
+            },
+            "durability": "temporary"
+          }
+        },
+        [
+          {
+            "last_modified_ledger_seq": 0,
+            "data": {
+              "contract_data": {
+                "ext": "v0",
+                "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4",
+                "key": {
+                  "ledger_key_nonce": {
+                    "nonce": 6277191135259896685
                   }
                 },
                 "durability": "temporary",
@@ -997,7 +1165,7 @@
                 {
                   "i128": {
                     "hi": 0,
-                    "lo": 10000000
+                    "lo": 20000000
                   }
                 }
               ]
@@ -1022,7 +1190,7 @@
             "data": {
               "i128": {
                 "hi": 0,
-                "lo": 10000000
+                "lo": 20000000
               }
             }
           }
@@ -1066,18 +1234,24 @@
                 "bytes": "0000000000000000000000000000000000000000000000000000000000000003"
               },
               {
-                "symbol": "mint_liability_from_settled_usdc"
+                "symbol": "register_strategy"
               }
             ],
             "data": {
               "vec": [
                 {
-                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
+                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM"
+                },
+                {
+                  "bytes": "1414141414141414141414141414141414141414141414141414141414141414"
+                },
+                {
+                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAK3IM"
                 },
                 {
                   "i128": {
                     "hi": 0,
-                    "lo": 1000000
+                    "lo": 10000000
                   }
                 }
               ]
@@ -1096,14 +1270,11 @@
           "v0": {
             "topics": [
               {
-                "symbol": "MintLiab"
+                "symbol": "StratReg"
               }
             ],
             "data": {
-              "i128": {
-                "hi": 0,
-                "lo": 1000000
-              }
+              "bytes": "1414141414141414141414141414141414141414141414141414141414141414"
             }
           }
         }
@@ -1122,7 +1293,7 @@
                 "symbol": "fn_return"
               },
               {
-                "symbol": "mint_liability_from_settled_usdc"
+                "symbol": "register_strategy"
               }
             ],
             "data": "void"
@@ -1155,10 +1326,10 @@
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM"
                 },
                 {
-                  "bytes": "0303030303030303030303030303030303030303030303030303030303030303"
+                  "bytes": "1515151515151515151515151515151515151515151515151515151515151515"
                 },
                 {
-                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAK3IM"
+                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMDR4"
                 },
                 {
                   "i128": {
@@ -1186,7 +1357,7 @@
               }
             ],
             "data": {
-              "bytes": "0303030303030303030303030303030303030303030303030303030303030303"
+              "bytes": "1515151515151515151515151515151515151515151515151515151515151515"
             }
           }
         }
@@ -1238,12 +1409,12 @@
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
                 },
                 {
-                  "bytes": "0303030303030303030303030303030303030303030303030303030303030303"
+                  "bytes": "1414141414141414141414141414141414141414141414141414141414141414"
                 },
                 {
                   "i128": {
                     "hi": 0,
-                    "lo": 3000000
+                    "lo": 2000000
                   }
                 }
               ]
@@ -1265,13 +1436,99 @@
                 "symbol": "ToStrat"
               },
               {
-                "bytes": "0303030303030303030303030303030303030303030303030303030303030303"
+                "bytes": "1414141414141414141414141414141414141414141414141414141414141414"
               }
             ],
             "data": {
               "i128": {
                 "hi": 0,
-                "lo": 3000000
+                "lo": 2000000
+              }
+            }
+          }
+        }
+      },
+      "failed_call": false
+    },
+    {
+      "event": {
+        "ext": "v0",
+        "contract_id": "0000000000000000000000000000000000000000000000000000000000000003",
+        "type_": "diagnostic",
+        "body": {
+          "v0": {
+            "topics": [
+              {
+                "symbol": "fn_return"
+              },
+              {
+                "symbol": "move_idle_to_strategy"
+              }
+            ],
+            "data": "void"
+          }
+        }
+      },
+      "failed_call": false
+    },
+    {
+      "event": {
+        "ext": "v0",
+        "contract_id": null,
+        "type_": "diagnostic",
+        "body": {
+          "v0": {
+            "topics": [
+              {
+                "symbol": "fn_call"
+              },
+              {
+                "bytes": "0000000000000000000000000000000000000000000000000000000000000003"
+              },
+              {
+                "symbol": "move_idle_to_strategy"
+              }
+            ],
+            "data": {
+              "vec": [
+                {
+                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
+                },
+                {
+                  "bytes": "1515151515151515151515151515151515151515151515151515151515151515"
+                },
+                {
+                  "i128": {
+                    "hi": 0,
+                    "lo": 2000000
+                  }
+                }
+              ]
+            }
+          }
+        }
+      },
+      "failed_call": false
+    },
+    {
+      "event": {
+        "ext": "v0",
+        "contract_id": "0000000000000000000000000000000000000000000000000000000000000003",
+        "type_": "contract",
+        "body": {
+          "v0": {
+            "topics": [
+              {
+                "symbol": "ToStrat"
+              },
+              {
+                "bytes": "1515151515151515151515151515151515151515151515151515151515151515"
+              }
+            ],
+            "data": {
+              "i128": {
+                "hi": 0,
+                "lo": 2000000
               }
             }
           }
@@ -1432,7 +1689,7 @@
                   "val": {
                     "i128": {
                       "hi": 0,
-                      "lo": 9000000
+                      "lo": 20000000
                     }
                   }
                 },
@@ -1508,7 +1765,7 @@
                   "val": {
                     "i128": {
                       "hi": 0,
-                      "lo": 7000000
+                      "lo": 16000000
                     }
                   }
                 },
@@ -1530,7 +1787,7 @@
                   "val": {
                     "i128": {
                       "hi": 0,
-                      "lo": 1000000
+                      "lo": 0
                     }
                   }
                 },
@@ -1541,7 +1798,7 @@
                   "val": {
                     "i128": {
                       "hi": 0,
-                      "lo": 3000000
+                      "lo": 4000000
                     }
                   }
                 },
@@ -1578,7 +1835,7 @@
                 "bytes": "0000000000000000000000000000000000000000000000000000000000000003"
               },
               {
-                "symbol": "report_strategy_value"
+                "symbol": "move_strategy_to_idle"
               }
             ],
             "data": {
@@ -1587,12 +1844,12 @@
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
                 },
                 {
-                  "bytes": "0303030303030303030303030303030303030303030303030303030303030303"
+                  "bytes": "1414141414141414141414141414141414141414141414141414141414141414"
                 },
                 {
                   "i128": {
                     "hi": 0,
-                    "lo": 3300000
+                    "lo": 2500000
                   }
                 }
               ]
@@ -1611,16 +1868,16 @@
           "v0": {
             "topics": [
               {
-                "symbol": "StratVal"
+                "symbol": "FromStrat"
               },
               {
-                "bytes": "0303030303030303030303030303030303030303030303030303030303030303"
+                "bytes": "1414141414141414141414141414141414141414141414141414141414141414"
               }
             ],
             "data": {
               "i128": {
                 "hi": 0,
-                "lo": 3300000
+                "lo": 2500000
               }
             }
           }
@@ -1640,273 +1897,10 @@
                 "symbol": "fn_return"
               },
               {
-                "symbol": "report_strategy_value"
+                "symbol": "move_strategy_to_idle"
               }
             ],
             "data": "void"
-          }
-        }
-      },
-      "failed_call": false
-    },
-    {
-      "event": {
-        "ext": "v0",
-        "contract_id": null,
-        "type_": "diagnostic",
-        "body": {
-          "v0": {
-            "topics": [
-              {
-                "symbol": "fn_call"
-              },
-              {
-                "bytes": "0000000000000000000000000000000000000000000000000000000000000003"
-              },
-              {
-                "symbol": "global_state"
-              }
-            ],
-            "data": "void"
-          }
-        }
-      },
-      "failed_call": false
-    },
-    {
-      "event": {
-        "ext": "v0",
-        "contract_id": "0000000000000000000000000000000000000000000000000000000000000003",
-        "type_": "diagnostic",
-        "body": {
-          "v0": {
-            "topics": [
-              {
-                "symbol": "fn_return"
-              },
-              {
-                "symbol": "global_state"
-              }
-            ],
-            "data": {
-              "map": [
-                {
-                  "key": {
-                    "symbol": "cancel_timeout_ledgers"
-                  },
-                  "val": {
-                    "u32": 60000
-                  }
-                },
-                {
-                  "key": {
-                    "symbol": "epoch_length_ledgers"
-                  },
-                  "val": {
-                    "u32": 69120
-                  }
-                },
-                {
-                  "key": {
-                    "symbol": "epoch_start_ledger"
-                  },
-                  "val": {
-                    "u32": 0
-                  }
-                },
-                {
-                  "key": {
-                    "symbol": "fast_credit_reserve_6"
-                  },
-                  "val": {
-                    "i128": {
-                      "hi": 0,
-                      "lo": 0
-                    }
-                  }
-                },
-                {
-                  "key": {
-                    "symbol": "global_daily_redeem_limit_6"
-                  },
-                  "val": {
-                    "i128": {
-                      "hi": 9223372036854775807,
-                      "lo": 18446744073709551615
-                    }
-                  }
-                },
-                {
-                  "key": {
-                    "symbol": "global_redeem_day_start_ledger"
-                  },
-                  "val": {
-                    "u32": 0
-                  }
-                },
-                {
-                  "key": {
-                    "symbol": "global_redeemed_today_6"
-                  },
-                  "val": {
-                    "i128": {
-                      "hi": 0,
-                      "lo": 0
-                    }
-                  }
-                },
-                {
-                  "key": {
-                    "symbol": "hub_cctp_domain"
-                  },
-                  "val": {
-                    "u32": 27
-                  }
-                },
-                {
-                  "key": {
-                    "symbol": "max_yield_per_epoch_6"
-                  },
-                  "val": {
-                    "i128": {
-                      "hi": 0,
-                      "lo": 1000000000
-                    }
-                  }
-                },
-                {
-                  "key": {
-                    "symbol": "mint_allowance_6"
-                  },
-                  "val": {
-                    "i128": {
-                      "hi": 0,
-                      "lo": 9000000
-                    }
-                  }
-                },
-                {
-                  "key": {
-                    "symbol": "mint_auth_ack_timeout_ledgers"
-                  },
-                  "val": {
-                    "u32": 483840
-                  }
-                },
-                {
-                  "key": {
-                    "symbol": "paused"
-                  },
-                  "val": {
-                    "bool": false
-                  }
-                },
-                {
-                  "key": {
-                    "symbol": "pending_fast_credit_6"
-                  },
-                  "val": {
-                    "i128": {
-                      "hi": 0,
-                      "lo": 0
-                    }
-                  }
-                },
-                {
-                  "key": {
-                    "symbol": "pending_outbound_usdc_6"
-                  },
-                  "val": {
-                    "i128": {
-                      "hi": 0,
-                      "lo": 0
-                    }
-                  }
-                },
-                {
-                  "key": {
-                    "symbol": "protocol_dust_usdc_7"
-                  },
-                  "val": {
-                    "i128": {
-                      "hi": 0,
-                      "lo": 0
-                    }
-                  }
-                },
-                {
-                  "key": {
-                    "symbol": "redeem_window_ledgers"
-                  },
-                  "val": {
-                    "u32": 69120
-                  }
-                },
-                {
-                  "key": {
-                    "symbol": "required_reserve_bps"
-                  },
-                  "val": {
-                    "u32": 1000
-                  }
-                },
-                {
-                  "key": {
-                    "symbol": "settled_idle_usdc_6"
-                  },
-                  "val": {
-                    "i128": {
-                      "hi": 0,
-                      "lo": 7000000
-                    }
-                  }
-                },
-                {
-                  "key": {
-                    "symbol": "settled_spoke_escrow_usdc_6"
-                  },
-                  "val": {
-                    "i128": {
-                      "hi": 0,
-                      "lo": 0
-                    }
-                  }
-                },
-                {
-                  "key": {
-                    "symbol": "total_liabilities_6"
-                  },
-                  "val": {
-                    "i128": {
-                      "hi": 0,
-                      "lo": 1000000
-                    }
-                  }
-                },
-                {
-                  "key": {
-                    "symbol": "total_strategy_value_6"
-                  },
-                  "val": {
-                    "i128": {
-                      "hi": 0,
-                      "lo": 3300000
-                    }
-                  }
-                },
-                {
-                  "key": {
-                    "symbol": "yield_credited_this_epoch_6"
-                  },
-                  "val": {
-                    "i128": {
-                      "hi": 0,
-                      "lo": 300000
-                    }
-                  }
-                }
-              ]
-            }
           }
         }
       },
@@ -1931,7 +1925,7 @@
               }
             ],
             "data": {
-              "bytes": "0303030303030303030303030303030303030303030303030303030303030303"
+              "bytes": "1414141414141414141414141414141414141414141414141414141414141414"
             }
           }
         }
@@ -1989,7 +1983,7 @@
                   "val": {
                     "i128": {
                       "hi": 0,
-                      "lo": 3300000
+                      "lo": 0
                     }
                   }
                 },
@@ -2006,7 +2000,374 @@
                     "symbol": "strategy_id"
                   },
                   "val": {
-                    "bytes": "0303030303030303030303030303030303030303030303030303030303030303"
+                    "bytes": "1414141414141414141414141414141414141414141414141414141414141414"
+                  }
+                }
+              ]
+            }
+          }
+        }
+      },
+      "failed_call": false
+    },
+    {
+      "event": {
+        "ext": "v0",
+        "contract_id": null,
+        "type_": "diagnostic",
+        "body": {
+          "v0": {
+            "topics": [
+              {
+                "symbol": "fn_call"
+              },
+              {
+                "bytes": "0000000000000000000000000000000000000000000000000000000000000003"
+              },
+              {
+                "symbol": "strategy_state"
+              }
+            ],
+            "data": {
+              "bytes": "1515151515151515151515151515151515151515151515151515151515151515"
+            }
+          }
+        }
+      },
+      "failed_call": false
+    },
+    {
+      "event": {
+        "ext": "v0",
+        "contract_id": "0000000000000000000000000000000000000000000000000000000000000003",
+        "type_": "diagnostic",
+        "body": {
+          "v0": {
+            "topics": [
+              {
+                "symbol": "fn_return"
+              },
+              {
+                "symbol": "strategy_state"
+              }
+            ],
+            "data": {
+              "map": [
+                {
+                  "key": {
+                    "symbol": "active"
+                  },
+                  "val": {
+                    "bool": true
+                  }
+                },
+                {
+                  "key": {
+                    "symbol": "adapter"
+                  },
+                  "val": {
+                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMDR4"
+                  }
+                },
+                {
+                  "key": {
+                    "symbol": "debt_ceiling_6"
+                  },
+                  "val": {
+                    "i128": {
+                      "hi": 0,
+                      "lo": 10000000
+                    }
+                  }
+                },
+                {
+                  "key": {
+                    "symbol": "deployed_value_6"
+                  },
+                  "val": {
+                    "i128": {
+                      "hi": 0,
+                      "lo": 2000000
+                    }
+                  }
+                },
+                {
+                  "key": {
+                    "symbol": "last_report_ledger"
+                  },
+                  "val": {
+                    "u32": 0
+                  }
+                },
+                {
+                  "key": {
+                    "symbol": "strategy_id"
+                  },
+                  "val": {
+                    "bytes": "1515151515151515151515151515151515151515151515151515151515151515"
+                  }
+                }
+              ]
+            }
+          }
+        }
+      },
+      "failed_call": false
+    },
+    {
+      "event": {
+        "ext": "v0",
+        "contract_id": null,
+        "type_": "diagnostic",
+        "body": {
+          "v0": {
+            "topics": [
+              {
+                "symbol": "fn_call"
+              },
+              {
+                "bytes": "0000000000000000000000000000000000000000000000000000000000000003"
+              },
+              {
+                "symbol": "global_state"
+              }
+            ],
+            "data": "void"
+          }
+        }
+      },
+      "failed_call": false
+    },
+    {
+      "event": {
+        "ext": "v0",
+        "contract_id": "0000000000000000000000000000000000000000000000000000000000000003",
+        "type_": "diagnostic",
+        "body": {
+          "v0": {
+            "topics": [
+              {
+                "symbol": "fn_return"
+              },
+              {
+                "symbol": "global_state"
+              }
+            ],
+            "data": {
+              "map": [
+                {
+                  "key": {
+                    "symbol": "cancel_timeout_ledgers"
+                  },
+                  "val": {
+                    "u32": 60000
+                  }
+                },
+                {
+                  "key": {
+                    "symbol": "epoch_length_ledgers"
+                  },
+                  "val": {
+                    "u32": 69120
+                  }
+                },
+                {
+                  "key": {
+                    "symbol": "epoch_start_ledger"
+                  },
+                  "val": {
+                    "u32": 0
+                  }
+                },
+                {
+                  "key": {
+                    "symbol": "fast_credit_reserve_6"
+                  },
+                  "val": {
+                    "i128": {
+                      "hi": 0,
+                      "lo": 0
+                    }
+                  }
+                },
+                {
+                  "key": {
+                    "symbol": "global_daily_redeem_limit_6"
+                  },
+                  "val": {
+                    "i128": {
+                      "hi": 9223372036854775807,
+                      "lo": 18446744073709551615
+                    }
+                  }
+                },
+                {
+                  "key": {
+                    "symbol": "global_redeem_day_start_ledger"
+                  },
+                  "val": {
+                    "u32": 0
+                  }
+                },
+                {
+                  "key": {
+                    "symbol": "global_redeemed_today_6"
+                  },
+                  "val": {
+                    "i128": {
+                      "hi": 0,
+                      "lo": 0
+                    }
+                  }
+                },
+                {
+                  "key": {
+                    "symbol": "hub_cctp_domain"
+                  },
+                  "val": {
+                    "u32": 27
+                  }
+                },
+                {
+                  "key": {
+                    "symbol": "max_yield_per_epoch_6"
+                  },
+                  "val": {
+                    "i128": {
+                      "hi": 0,
+                      "lo": 1000000000
+                    }
+                  }
+                },
+                {
+                  "key": {
+                    "symbol": "mint_allowance_6"
+                  },
+                  "val": {
+                    "i128": {
+                      "hi": 0,
+                      "lo": 20000000
+                    }
+                  }
+                },
+                {
+                  "key": {
+                    "symbol": "mint_auth_ack_timeout_ledgers"
+                  },
+                  "val": {
+                    "u32": 483840
+                  }
+                },
+                {
+                  "key": {
+                    "symbol": "paused"
+                  },
+                  "val": {
+                    "bool": false
+                  }
+                },
+                {
+                  "key": {
+                    "symbol": "pending_fast_credit_6"
+                  },
+                  "val": {
+                    "i128": {
+                      "hi": 0,
+                      "lo": 0
+                    }
+                  }
+                },
+                {
+                  "key": {
+                    "symbol": "pending_outbound_usdc_6"
+                  },
+                  "val": {
+                    "i128": {
+                      "hi": 0,
+                      "lo": 0
+                    }
+                  }
+                },
+                {
+                  "key": {
+                    "symbol": "protocol_dust_usdc_7"
+                  },
+                  "val": {
+                    "i128": {
+                      "hi": 0,
+                      "lo": 0
+                    }
+                  }
+                },
+                {
+                  "key": {
+                    "symbol": "redeem_window_ledgers"
+                  },
+                  "val": {
+                    "u32": 69120
+                  }
+                },
+                {
+                  "key": {
+                    "symbol": "required_reserve_bps"
+                  },
+                  "val": {
+                    "u32": 1000
+                  }
+                },
+                {
+                  "key": {
+                    "symbol": "settled_idle_usdc_6"
+                  },
+                  "val": {
+                    "i128": {
+                      "hi": 0,
+                      "lo": 18500000
+                    }
+                  }
+                },
+                {
+                  "key": {
+                    "symbol": "settled_spoke_escrow_usdc_6"
+                  },
+                  "val": {
+                    "i128": {
+                      "hi": 0,
+                      "lo": 0
+                    }
+                  }
+                },
+                {
+                  "key": {
+                    "symbol": "total_liabilities_6"
+                  },
+                  "val": {
+                    "i128": {
+                      "hi": 0,
+                      "lo": 0
+                    }
+                  }
+                },
+                {
+                  "key": {
+                    "symbol": "total_strategy_value_6"
+                  },
+                  "val": {
+                    "i128": {
+                      "hi": 0,
+                      "lo": 2000000
+                    }
+                  }
+                },
+                {
+                  "key": {
+                    "symbol": "yield_credited_this_epoch_6"
+                  },
+                  "val": {
+                    "i128": {
+                      "hi": 0,
+                      "lo": 0
+                    }
                   }
                 }
               ]

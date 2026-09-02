@@ -351,7 +351,7 @@
             },
             "ext": "v0"
           },
-          4095
+          6311999
         ]
       ],
       [
@@ -1006,7 +1006,7 @@
             "data": {
               "vec": [
                 {
-                  "string": "caught panic 'debt ceiling exceeded' from contract function 'Symbol(obj#383)'"
+                  "string": "caught panic 'debt ceiling exceeded' from contract function 'Symbol(obj#387)'"
                 },
                 {
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
