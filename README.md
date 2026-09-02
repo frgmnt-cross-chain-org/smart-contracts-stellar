@@ -17,7 +17,9 @@ contracts/
     vault-accounting/     Canonical accounting hub (Soroban)
     mint-redeem-controller/  User entry point — deposit, redeem, remote mint auth
     allocation-manager/   Governance-gated strategy orchestration (idle USDC <-> adapters)
-    blend-adapter/        Strategy adapter for Blend Protocol lending pools (V1 and V2)
+    xycloans-adapter/     Active strategy adapter — xycLoans flash-loan liquidity pool
+    defindex-adapter/     Active strategy adapter — deFindex vault
+    blend-adapter/        Retained, not an active integration — see below
   evm/
     src/
       RemoteFusd.sol      ERC-20 fUSD token on EVM spokes
@@ -52,7 +54,7 @@ docs/
 cargo test --workspace
 ```
 
-All five Soroban crates include unit tests (84 total) covering:
+All seven Soroban crates include unit tests (**117 total**) covering:
 - `fusd-token`: mint/burn, non-controller rejection, pause guard
 - `vault-accounting`: solvency invariant, CCTP replay protection, collateral-release guard,
   fast-credit finalization (no double-mint), stuck-ack recovery, strategy allocation
@@ -63,21 +65,46 @@ All five Soroban crates include unit tests (84 total) covering:
 - `allocation-manager`: role-gated allocate/deallocate/emergency-exit orchestration across
   VaultAccounting, MintRedeemController, and a strategy adapter, end-to-end with real
   token movement
-- `blend-adapter`: deposit/withdraw against a mock Blend pool with real SAC token
-  transfers, V1-vs-V2 valuation behavior, balance-delta-based slippage protection,
+- `xycloans-adapter`: deposit/withdraw against a mock xycLoans pool with real SAC token
+  transfers, matured-fee harvesting semantics, balance-delta-based slippage protection,
   exposure caps, pause semantics
+- `defindex-adapter`: deposit/withdraw against a mock deFindex vault with real SAC token
+  transfers, share-price-based valuation under simulated yield, proportional-withdraw
+  rounding direction (never favors the withdrawer), exposure caps, pause semantics
+- `blend-adapter`: kept passing (not actively used — see below) — deposit/withdraw
+  against a mock Blend pool, V1-vs-V2 valuation behavior, balance-delta-based slippage
+  protection, exposure caps, pause semantics
 
-### Strategy allocation layer (Blend Protocol integration)
+### Strategy allocation layer
 
-`allocation-manager` and `blend-adapter` implement the "(Future)" `AllocationManager` /
-`BlendAdapter` pieces from [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md#51-soroban-contracts-hub):
-idle Stellar USDC can be moved into a Blend lending pool (either
-[blend-contracts](https://github.com/blend-capital/blend-contracts) "V1" or
-[blend-contracts-v2](https://github.com/blend-capital/blend-contracts-v2)) and back, with
-V2's live `get_reserve` interest-rate reporting used for valuation where available, and a
-conservative principal-tracking fallback for V1 pools (which do not expose that view).
-`blend-adapter/src/blend_pool.rs` documents exactly which parts of the interface are
-version-specific.
+`allocation-manager` implements the "(Future)" `AllocationManager` piece from
+[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md#51-soroban-contracts-hub): idle Stellar
+USDC can be moved into a registered `StrategyAdapter`-shaped contract and back, with a
+strategy's own reported value reflected in `VaultAccounting` — never inflating mint
+allowance.
+
+**Active adapters: `xycloans-adapter` and `defindex-adapter`.** Blend V2's backstop (the
+Comet AMM BLND-USDC pool) was exploited on 2026-08-22 and cannot be repaired; Blend V2 is
+being wound down, and the Stellar Community Fund has withdrawn Blend from its Integration
+Track. `xycloans-adapter` integrates
+[xycLoans](https://github.com/xycloo/xycloans), a flash-loan-only liquidity pool with no
+price oracle and no undercollateralized-borrow surface at all — yield is flash-loan fee
+income rather than term-loan interest, but the protocol structurally cannot accrue bad
+debt. `defindex-adapter` integrates a single-asset
+[deFindex](https://github.com/defindex-io/stellar-contracts) vault (audited by OtterSec,
+March 2025); deFindex is itself a multi-strategy router, so governance must confirm
+out-of-band which strategies a given vault routes to before registering it — this
+protocol's own use of deFindex never routes through deFindex's own Blend strategy.
+
+**`blend-adapter` is retained but not an active integration.** Its interface is generic
+across Blend pool versions (`pool_version: 1 | 2`), so it is kept, tested, and unused
+purely so a future, independently audited Blend V3 can be evaluated later without a
+rewrite — it must not be registered against a live Blend V1/V2 pool.
+`blend-adapter/src/blend_pool.rs` documents exactly which parts of the V1/V2 interface
+were verified.
+
+See [`docs/CROSS_CHAIN_FUSD_TECHNICAL_SPEC.md` §8](docs/CROSS_CHAIN_FUSD_TECHNICAL_SPEC.md#8-stellar-strategy-adapters)
+for the full design rationale and per-adapter risk notes.
 
 ---
 

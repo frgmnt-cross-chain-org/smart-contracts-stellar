@@ -383,7 +383,8 @@ fUSD is **6 decimals on all chains** — Stellar, EVM, and Solana. This keeps
 │  │    assets >= liabilities  AND  idle >= liabilities * reserve_bps     │   │
 │  └──────────────────────────────────────────────────────────────────────┘   │
 │                                                                              │
-│  AllocationManager · BlendAdapter (implemented) · (Future) GovernanceController · SfUsdVault│
+│  AllocationManager · XycloansAdapter · DefindexAdapter (implemented)                       │
+│  BlendAdapter (retained, not active) · (Future) GovernanceController · SfUsdVault           │
 └──────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -589,7 +590,7 @@ Alice (Stellar)              MintRedeemController    VaultAccounting     RemoteR
 ### 6.4 Strategy Allocation
 
 ```
-AllocationManager (Stellar)        CCTP               BlendProtocol (Stellar)
+AllocationManager (Stellar)        CCTP          xycLoans / deFindex (Stellar)
         │                            │                       │
         ├─ approve route via governance
         ├─ execute_bridge_route(route_id, route_version, 500M USDC)
@@ -597,16 +598,20 @@ AllocationManager (Stellar)        CCTP               BlendProtocol (Stellar)
         │                            │                       │
         │                            │ if same-chain:        │
         │                            │─── USDC transfer ─────►
-        │                            │                       │ Blend deposit
+        │                            │                       │ pool/vault deposit
         │                            │                       │ → yield accumulates
         │                            │                       │
         │◄─ report_strategy_value() ─┤──────────────────────┤
         │   strategy_id, value_6     │                       │
-        │   (haircutted, freshness-limited)                  │
+        │   (live, never inflates mint_allowance_6)          │
         ├─ VaultAccounting.report_strategy_value()           │
-        │   total_strategy_value_6 += conservative_value     │
+        │   total_strategy_value_6 = reported value          │
         │   invariant re-checked                             │
 ```
+
+Blend V1/V2 is not used here — see [`CROSS_CHAIN_FUSD_TECHNICAL_SPEC.md` §8](CROSS_CHAIN_FUSD_TECHNICAL_SPEC.md#8-stellar-strategy-adapters)
+for why (Blend V2's backstop was drained in the August 2026 Comet AMM exploit and cannot
+be repaired) and for the xycLoans/deFindex adapter design.
 
 ---
 
@@ -867,7 +872,15 @@ frgmnt_stellar/
 │   │   │   └── src/lib.rs
 │   │   ├── vault-accounting/        Canonical hub state machine
 │   │   │   └── src/lib.rs
-│   │   └── mint-redeem-controller/  User entry point
+│   │   ├── mint-redeem-controller/  User entry point
+│   │   │   └── src/lib.rs
+│   │   ├── allocation-manager/      Strategy orchestration (idle USDC <-> adapters)
+│   │   │   └── src/lib.rs
+│   │   ├── xycloans-adapter/        Active strategy adapter — xycLoans flash-loan pool
+│   │   │   └── src/lib.rs
+│   │   ├── defindex-adapter/        Active strategy adapter — deFindex vault
+│   │   │   └── src/lib.rs
+│   │   └── blend-adapter/           Retained, not active — see spec §8 status note
 │   │       └── src/lib.rs
 │   └── evm/
 │       ├── src/

@@ -6,6 +6,8 @@ members = [
     "contracts/soroban/mint-redeem-controller",
     "contracts/soroban/blend-adapter",
     "contracts/soroban/allocation-manager",
+    "contracts/soroban/xycloans-adapter",
+    "contracts/soroban/defindex-adapter",
 ]
 
 [workspace.dependencies]

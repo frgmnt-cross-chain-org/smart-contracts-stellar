@@ -276,14 +276,18 @@ The production implementation must pin:
 +-------------------+        | FusdToken             |        +-------------------+
                              | SfUsdVault optional   |
                              | StrategyRegistry      |
-                             | BlendAdapter          |
+                             | XycloansAdapter       |
+                             | DefindexAdapter       |
                              +-----------+-----------+
                                          |
                                          v
-                           +---------------------------+
-                           | Stellar DeFi              |
-                           | Blend, Aquarius, SAC USDC |
-                           +---------------------------+
+                           +--------------------------------+
+                           | Stellar DeFi                   |
+                           | xycLoans, deFindex, Aquarius,   |
+                           | SAC USDC                        |
+                           | (Blend retained, not active —   |
+                           |  see §8 status note)            |
+                           +--------------------------------+
 ```
 
 ## 6A. Supported Chain Strategy
@@ -296,7 +300,7 @@ Recommended first production set:
 
 | Runtime | Chain | Purpose | Value rail | Message rail | Yield venues |
 | --- | --- | --- | --- | --- | --- |
-| Stellar | Stellar | Canonical accounting, governance, local mint/redeem, first yield venue | SAC USDC + CCTP domain 27 | Axelar GMP where configured | Blend first, Aquarius for peg liquidity only |
+| Stellar | Stellar | Canonical accounting, governance, local mint/redeem, first yield venue | SAC USDC + CCTP domain 27 | Axelar GMP where configured | xycLoans and deFindex first (oracle-free, no undercollateralized-borrow surface); Aquarius for peg liquidity only; Blend retained but not active (see §8 status note) |
 | EVM | Base | Mint/redeem spoke, existing traction, low-cost USDC onboarding, Aave/Morpho/Uniswap depth | CCTP domain 6 | Axelar chain id `base` | Guarded Aave/Morpho lending and Uniswap-style DEX/LP after guard validation |
 | EVM | Ethereum | Mint/redeem spoke, highest-security settlement and deep USDC liquidity source | CCTP domain 0 | Axelar chain id `ethereum` | Guarded Aave/Morpho/DEX venues with conservative caps |
 | EVM | Arbitrum | Mint/redeem spoke, large DeFi market and USDC liquidity | CCTP domain 3 | Axelar chain id `arbitrum` | Guarded lending and DEX venues after risk approval |
@@ -1179,7 +1183,10 @@ Allowed guarded venues:
 
 - EVM lending: Aave V3, Morpho Blue, and future approved lending markets.
 - EVM DEX/LP: Uniswap V3-style swaps and LP positions, primarily for rebalancing, unwind, and protocol-owned peg liquidity.
-- Stellar lending: Blend through `BlendAdapter` and guard checks.
+- Stellar lending/liquidity: xycLoans through `XycloansAdapter`, and deFindex through
+  `DefindexAdapter`, plus guard checks. `BlendAdapter` exists in the codebase but is not
+  an active venue (see §8 status note) — do not route capital to it against a live Blend
+  V1/V2 pool.
 - Stellar DEX/LP: Aquarius through guard checks, treated as peg liquidity or haircutted backing only after validation.
 - Solana lending/DEX strategy execution: disabled in first release, then enabled only through Solana instruction guards and asset guards after separate security validation. Solana mint/redeem and CCTP routing remain in scope for activated Solana spokes.
 
@@ -1211,7 +1218,20 @@ Lending policy:
 
 ## 8. Stellar Strategy Adapters
 
-### 8.1 Blend Adapter
+**Status (2026-09-02):** Blend V2's backstop (the Comet AMM BLND-USDC pool) was exploited
+on 2026-08-22 and cannot be repaired; Blend V2 is being wound down protocol-wide, and the
+Stellar Community Fund has withdrawn Blend from its Integration Track. `blend-adapter`
+(§8.1) is **not an active integration** — its code is retained (it is generic across
+Blend pool versions and nothing is deployed against it) purely so a future, independently
+audited Blend V3 can be evaluated later without a rewrite. It must not be registered with
+`AllocationManager` against a live Blend V1/V2 pool. The active strategy adapters are
+`xycloans-adapter` (§8.2) and `defindex-adapter` (§8.3), chosen specifically because
+neither depends on a price oracle or an undercollateralized-borrow/liquidation surface —
+the two failure modes behind both Stellar DeFi incidents in 2026 (the YieldBlox Reflector
+oracle manipulation in February, and the Comet accounting-bug exploit in August, which
+used a flash loan sourced from a Blend pool to drain Comet's BLND-USDC reserve).
+
+### 8.1 Blend Adapter — retained, not active (see status note above)
 
 Purpose:
 
@@ -1267,7 +1287,135 @@ Withdraw:
 - If Blend liquidity is insufficient, return partial only if caller explicitly requested emergency mode.
 - Normal withdraw must either satisfy `min_out` or trap.
 
-### 8.2 Aquarius Adapter
+### 8.2 xycLoans Adapter (active — implemented in `xycloans-adapter`)
+
+Purpose:
+
+- Deploy Stellar USDC into an xycLoans flash-loan liquidity pool
+  ([github.com/xycloo/xycloans](https://github.com/xycloo/xycloans)).
+- Report a live, exact valuation — xycLoans mints shares 1:1 with deposits (no
+  bToken/exchange-rate approximation), so unlike Blend this adapter never needs a
+  conservative valuation fallback for its principal component.
+
+Why this shape of protocol: xycLoans is flash-loan-only. A borrower must repay principal
+plus fee within the same transaction or the entire transaction reverts — there is no
+concept of an open-duration, collateralized borrow position. This structurally rules out
+bad debt and price-oracle manipulation as attack surfaces, at the cost of yield being
+flash-loan fee income (smaller, choppier) rather than term-loan interest.
+
+State:
+
+```rust
+struct XycloansConfig {
+    pool: Address,
+    usdc_token: Address,
+    asset_decimals: u32,               // 7 for Stellar SAC USDC
+    max_protocol_exposure_6: i128,
+    paused: bool,
+}
+```
+
+Accounting model: xycLoans tracks principal (`shares`, 1:1 with deposited underlying) and
+accrued-but-unclaimed fee income (`matured`) as two **separate** balances — depositing
+does not compound yield into share value. `matured` is a snapshot that only advances when
+`update_fee_rewards` is called for an address; it is not continuously accruing in storage.
+
+Valuation:
+
+```text
+value_usdc_6 = floor((pool.shares(adapter) + pool.matured(adapter)) / 10)
+```
+
+Because `matured` can be stale until harvested, this can only ever **under-report** real
+value, never over-report it — the same safe direction as Blend's V1 conservative
+fallback (§8.1).
+
+Risk checks:
+
+- pool is the governance-registered pool for this adapter (no discovery/upgrade path),
+- adapter not exceeding `max_protocol_exposure_6` (checked against principal only, not
+  including unrealized matured fees),
+- adapter paused flag blocks new deposits only — withdrawals always remain available.
+
+No oracle, no liquidation, no utilization cap — none of those concepts exist for this
+protocol, which is precisely why it was chosen as a lower-risk primitive.
+
+Withdraw:
+
+- Every withdraw path (partial, full, or emergency) first calls `update_fee_rewards` and
+  then `withdraw_matured` (if any matured fees are present) before withdrawing principal
+  — a partial withdraw can therefore legitimately return more than the requested amount
+  if matured fees ride along; this is intentional and mirrors the "measure the real
+  balance delta, never trust the requested figure" rule used for CCTP settlement and the
+  Blend adapter elsewhere in this spec.
+- A full exit (`withdraw_all` / `emergency_exit`) claims both matured fees and all
+  remaining principal in one call.
+- The realized amount is always the token balance delta measured immediately around the
+  pool call, never the pool's return value or the requested amount.
+
+### 8.3 deFindex Adapter (active — implemented in `defindex-adapter`)
+
+Purpose:
+
+- Deploy Stellar USDC into a single-asset [deFindex](https://github.com/defindex-io/stellar-contracts)
+  vault and report a live valuation.
+- deFindex is a multi-strategy vault aggregator, not a lending pool itself: a vault
+  routes deposits into whichever strategy contracts it is configured with (their public
+  strategy set includes Blend, xycLoans, Soroswap LP, and non-market strategies). This
+  adapter only talks to the vault's own share-token interface, so it is agnostic to
+  which strategy(ies) a given vault routes to internally — **governance is responsible
+  for confirming out-of-band, before registering a vault address, that it does not route
+  to Blend.** The adapter itself has no way to inspect a vault's internal strategy
+  configuration.
+
+State:
+
+```rust
+struct DefindexConfig {
+    vault: Address,                    // a single-asset deFindex vault
+    usdc_token: Address,               // the vault's sole configured asset
+    asset_decimals: u32,               // 7 for Stellar SAC USDC (also the vault
+                                        // share token's own decimals)
+    max_protocol_exposure_6: i128,
+    paused: bool,
+}
+```
+
+Accounting model: a deFindex vault is itself an SEP-41 fungible token representing vault
+shares — this adapter reads its own share balance via a plain token `balance` call, not a
+bespoke accessor. Share price (`get_asset_amounts_per_shares`) moves with whatever the
+vault's underlying strategy(ies) report, including gains or losses.
+
+Valuation:
+
+```text
+value_usdc_6 = floor(vault.get_asset_amounts_per_shares(adapter_share_balance)[0] / 10)
+```
+
+Risk checks:
+
+- vault is the governance-registered single-asset vault for this adapter,
+- adapter not exceeding `max_protocol_exposure_6` (checked against deployed principal,
+  tracked locally by this adapter — not the live, yield-inclusive position value),
+- adapter paused flag blocks new deposits only — withdrawals always remain available.
+
+Deposits always pass `invest = false` to the vault: whether and when to deploy idle vault
+funds into the vault's underlying strategies is the vault's own manager/rebalancer's
+decision, not this adapter's, since a mere depositor should not be able to force a
+vault-level investment action.
+
+Withdraw:
+
+- Because deFindex's `withdraw` takes a **share** amount, not an underlying-asset amount,
+  a partial withdraw for `amount_6` first computes the proportional share count via the
+  vault's own current share price, **flooring** the result — this always rounds in favor
+  of the vault's other depositors, never the withdrawer, so a request may legitimately
+  return slightly less than asked (bounded by unit-level rounding dust); `min_out_6`
+  protects the caller against anything worse than that.
+- The realized amount is always the token balance delta measured immediately around the
+  vault call, never the vault's return value or the requested amount.
+
+### 8.4 Aquarius Adapter
 
 Purpose:
 
@@ -2774,7 +2922,7 @@ would have both calls pass a per-call check but the second call MUST be rejected
 
 Yield sources:
 
-- realized Blend interest,
+- realized xycLoans flash-loan fee income, realized deFindex vault yield,
 - guarded local and remote lending interest,
 - guarded DEX/LP fees after haircut and realization,
 - retained protocol fees if enabled,
@@ -2976,9 +3124,18 @@ Rules:
 
 USDC is valued at par for mint/redeem, subject to emergency governance override if Circle/USDC breaks.
 
-### 16.2 Blend
+### 16.2 xycLoans and deFindex
 
-Use Blend's accounting and Reflector/oracle data where applicable.
+Neither venue depends on an external price oracle. xycLoans values a position directly
+from its own 1:1 share accounting plus its matured-fee snapshot (§8.2); deFindex values a
+position via the vault's own `get_asset_amounts_per_shares` (§8.3), which reflects
+whatever its underlying strategy(ies) report. No Reflector/oracle integration is needed
+for either.
+
+### 16.3 Blend (retained, not active)
+
+Use Blend's accounting and Reflector/oracle data where applicable, if and when a future
+Blend V3 integration is independently evaluated and approved (see §8 status note).
 
 Valuation must be conservative:
 
@@ -3712,7 +3869,7 @@ Solana:
 - Remote mint execution acknowledgement -> pending supply becomes outstanding supply.
 - Remote burn -> Stellar liability reduction -> CCTP redeem.
 - Spoke burn cannot reserve USDC before hub burn acceptance.
-- Blend allocation -> yield report -> harvest.
+- xycLoans/deFindex allocation -> yield report -> harvest.
 - Allocation route execution rejects wrong route id, domain, strategy, or nonce.
 - Trader-selected bridge route executes only if route is active and within limits.
 - Local same-chain USDC deposit -> guarded lending allocation -> strategy report -> guarded withdraw.
@@ -3816,7 +3973,7 @@ protocol dust never contributes to mint allowance
 
 - `AllocationManager`
 - `StrategyAdapterRegistry`
-- `BlendAdapter`
+- `XycloansAdapter`, `DefindexAdapter` (`BlendAdapter` retained, not active — §8 status note)
 - strategy valuation and withdrawals
 - `SfUsdVault` or rewards module
 
@@ -3921,9 +4078,13 @@ docs/
 ## 24. Open Questions
 
 1. Should fUSD itself earn yield, or should yield require staking into sfUSD?
-2. Which exact Blend pool(s) are approved for first deployment?
+2. Which exact xycLoans pool and deFindex vault(s) are approved for first deployment, and
+   — for the deFindex vault specifically — what is its exact configured strategy set
+   (must be confirmed to exclude Blend before registration)?
 3. How should strategy losses be socialized: treasury reserve first, yield reserve second, then protocol pause?
 4. What external proof should be published for Gauntlet/risk allocation updates?
+5. Under what conditions (independent audit, backstop redesign) would a future Blend V3
+   be re-evaluated as an additional strategy adapter?
 
 ## 25. Implementation Notes For Senior Review
 
